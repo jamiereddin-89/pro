@@ -89,7 +89,12 @@ import {
   Key,
   EyeOff,
   FileJson,
-  Download
+  Download,
+  Plus,
+  Minus,
+  Cloud,
+  SaveAll,
+  Copy as CopyIcon
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import Editor, { OnMount } from '@monaco-editor/react';
@@ -145,7 +150,12 @@ export default function App() {
     fetchModels,
     generateImageAction,
     syncProject,
-    stopSync
+    stopSync,
+    copyProject,
+    addProvider,
+    removeProvider,
+    lastSavedHtml,
+    lastAutoSaveTime
   } = useStore();
 
   const [user] = useAuthState(auth);
@@ -155,9 +165,13 @@ export default function App() {
   const [isTestingKey, setIsTestingKey] = useState(false);
   const [imagePrompt, setImagePrompt] = useState('');
   const [isGeneratingImage, setIsGeneratingImage] = useState(false);
+  const [showAddProvider, setShowAddProvider] = useState(false);
+  const [newProvider, setNewProvider] = useState({ name: '', apiKey: '', baseUrl: '' });
   const chatEndRef = useRef<HTMLDivElement>(null);
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const toast = useToast();
+  
+  const isDirty = html !== lastSavedHtml;
   
   const { isOpen: isSaveOpen, onOpen: onSaveOpen, onClose: onSaveClose } = useDisclosure();
   const { isOpen: isLoadOpen, onOpen: onLoadOpen, onClose: onLoadClose } = useDisclosure();
@@ -310,20 +324,37 @@ export default function App() {
     });
   };
 
+  const handleAddProvider = () => {
+    if (!newProvider.name || !newProvider.apiKey) return;
+    addProvider({
+      id: Math.random().toString(36).substring(7),
+      name: newProvider.name,
+      apiKey: newProvider.apiKey,
+      baseUrl: newProvider.baseUrl
+    });
+    setNewProvider({ name: '', apiKey: '', baseUrl: '' });
+    setShowAddProvider(false);
+    toast({
+      title: "Provider Added",
+      status: "success",
+      duration: 2000,
+    });
+  };
+
   const handleTestKey = async () => {
     setIsTestingKey(true);
     try {
       await fetchModels();
       toast({
-        title: "API Key is valid",
-        description: `Found ${availableModels.length} models`,
+        title: "Connection Successful",
+        description: "Successfully connected to the provider and fetched models.",
         status: "success",
         duration: 3000,
       });
-    } catch (err) {
+    } catch (err: any) {
       toast({
-        title: "Invalid API Key",
-        description: "Could not fetch models with this key.",
+        title: "Connection Failed",
+        description: err.message || "Could not connect to the provider.",
         status: "error",
         duration: 3000,
       });
@@ -551,18 +582,23 @@ export default function App() {
           ))}
 
           {isLoading && (
-            <VStack align="start" spacing={2} w="full">
-              <Box bg="whiteAlpha.100" p={3} borderRadius="2xl" borderTopLeftRadius="none" border="1px solid" borderColor="whiteAlpha.200">
-                <HStack spacing={1}>
-                  <Box w={1.5} h={1.5} bg="whiteAlpha.500" borderRadius="full" className="animate-bounce" />
-                  <Box w={1.5} h={1.5} bg="whiteAlpha.500" borderRadius="full" className="animate-bounce" style={{ animationDelay: '0.2s' }} />
-                  <Box w={1.5} h={1.5} bg="whiteAlpha.500" borderRadius="full" className="animate-bounce" style={{ animationDelay: '0.4s' }} />
+            <Flex justify="flex-start">
+              <VStack align="start" spacing={2} w="full">
+                <HStack spacing={2}>
+                  <motion.div
+                    animate={{ rotate: 360 }}
+                    transition={{ duration: 2, repeat: Infinity, ease: "linear" }}
+                  >
+                    <RefreshCw size={14} color="#4299E1" />
+                  </motion.div>
+                  <Text fontSize="xs" color="blue.400" fontWeight="bold">AI is generating...</Text>
                 </HStack>
-              </Box>
-              <Box w="80%" p={2}>
-                <SkeletonText noOfLines={3} spacing="2" skeletonHeight="2" />
-              </Box>
-            </VStack>
+                <Box w="full" p={3} borderRadius="2xl" bg="whiteAlpha.50" border="1px dashed" borderColor="whiteAlpha.200">
+                  <SkeletonText noOfLines={3} spacing="2" skeletonHeight="2" />
+                  <Progress size="xs" isIndeterminate colorScheme="blue" mt={4} borderRadius="full" />
+                </Box>
+              </VStack>
+            </Flex>
           )}
           <div ref={chatEndRef} />
         </Box>
@@ -825,16 +861,27 @@ export default function App() {
           </AnimatePresence>
         </Box>
 
-        <Flex h={8} borderTop="1px solid" borderColor="whiteAlpha.100" bg="#0d0d11" align="center" justify="space-between" px={4} fontSize="10px" color="whiteAlpha.400">
-          <HStack spacing={3}>
-            <HStack spacing={1}>
-              <Box w={1.5} h={1.5} borderRadius="full" bg={html ? "green.500" : "whiteAlpha.300"} />
-              <Text>{html ? 'Site Ready' : 'Idle'}</Text>
+        {/* Footer / Status Bar */}
+        <Flex h={8} borderTop="1px solid" borderColor="whiteAlpha.100" bg="#16161e" align="center" justify="space-between" px={4} fontSize="10px" color="whiteAlpha.400">
+          <HStack spacing={4}>
+            <HStack spacing={2}>
+              <Box w={1.5} h={1.5} borderRadius="full" bg={isDirty ? "orange.400" : "green.400"} />
+              <Text color="whiteAlpha.600">
+                {isDirty ? "Unsaved changes" : "All changes saved"}
+              </Text>
             </HStack>
+            {lastAutoSaveTime && (
+              <HStack spacing={1}>
+                <SaveAll size={10} color="gray" />
+                <Text color="whiteAlpha.400">
+                  Auto-saved: {new Date(lastAutoSaveTime).toLocaleTimeString()}
+                </Text>
+              </HStack>
+            )}
             <Divider orientation="vertical" h={3} />
-            <Text>Model: {model}</Text>
+            <Text>Model: {typeof model === 'string' ? model.split('/').pop() : model}</Text>
             <Divider orientation="vertical" h={3} />
-            <Text>Mode: {generationMode}</Text>
+            <Text>Mode: {generationMode.toUpperCase()}</Text>
           </HStack>
           <HStack spacing={3}>
             <Text>Responsive Design Enabled</Text>
@@ -940,6 +987,7 @@ export default function App() {
                       <Text fontSize="10px" color="whiteAlpha.500">{new Date(project.timestamp).toLocaleString()} • {project.mode}</Text>
                     </VStack>
                     <HStack>
+                      <IconButton aria-label="Copy" icon={<CopyIcon size={14} />} size="xs" colorScheme="teal" variant="ghost" onClick={() => copyProject(project.id)} />
                       <Button size="xs" colorScheme="blue" onClick={() => { loadProject(project.id); setProjectName(project.name); onLoadClose(); }}>Load</Button>
                       <IconButton aria-label="Delete" icon={<Trash2 size={14} />} size="xs" colorScheme="red" variant="ghost" onClick={() => deleteProject(project.id)} />
                     </HStack>
@@ -962,36 +1010,87 @@ export default function App() {
           <ModalCloseButton />
           <ModalBody>
             <VStack spacing={6} align="stretch">
-              {/* API Key Section */}
+              {/* Providers Section */}
               <Box p={4} bg="whiteAlpha.50" borderRadius="xl" border="1px solid" borderColor="whiteAlpha.100">
-                <VStack align="stretch" spacing={3}>
+                <VStack align="stretch" spacing={4}>
                   <HStack justify="space-between">
                     <HStack>
-                      <Key size={16} />
-                      <Text fontSize="sm" fontWeight="bold">Gemini API Key</Text>
+                      <Cloud size={16} />
+                      <Text fontSize="sm" fontWeight="bold">AI Providers</Text>
                     </HStack>
-                    <Button size="xs" variant="ghost" leftIcon={<RefreshCw size={12} />} onClick={handleTestKey} isLoading={isTestingKey}>Test Key</Button>
+                    <Button 
+                      size="xs" 
+                      leftIcon={showAddProvider ? <Minus size={12} /> : <Plus size={12} />} 
+                      onClick={() => setShowAddProvider(!showAddProvider)}
+                    >
+                      {showAddProvider ? 'Cancel' : 'Add Provider'}
+                    </Button>
                   </HStack>
-                  <InputGroup size="sm">
-                    <Input
-                      type={showApiKey ? 'text' : 'password'}
-                      placeholder="Enter your Gemini API Key"
-                      value={settings.apiKey}
-                      onChange={(e) => updateSettings({ apiKey: e.target.value })}
-                      bg="blackAlpha.300"
-                      borderColor="whiteAlpha.200"
-                    />
-                    <InputRightElement>
-                      <IconButton
-                        aria-label="Toggle visibility"
-                        icon={showApiKey ? <EyeOff size={14} /> : <Eye size={14} />}
-                        variant="ghost"
-                        size="xs"
-                        onClick={() => setShowApiKey(!showApiKey)}
-                      />
-                    </InputRightElement>
-                  </InputGroup>
-                  <Text fontSize="10px" color="whiteAlpha.400">Your key is stored locally in your browser.</Text>
+
+                  <AnimatePresence>
+                    {showAddProvider && (
+                      <motion.div
+                        initial={{ height: 0, opacity: 0 }}
+                        animate={{ height: 'auto', opacity: 1 }}
+                        exit={{ height: 0, opacity: 0 }}
+                        style={{ overflow: 'hidden' }}
+                      >
+                        <VStack spacing={3} p={3} bg="blackAlpha.300" borderRadius="lg" mb={2}>
+                          <Input 
+                            size="sm" 
+                            placeholder="Provider Name (e.g. Anthropic)" 
+                            value={newProvider.name}
+                            onChange={(e) => setNewProvider({ ...newProvider, name: e.target.value })}
+                          />
+                          <Input 
+                            size="sm" 
+                            placeholder="API Key" 
+                            type="password"
+                            value={newProvider.apiKey}
+                            onChange={(e) => setNewProvider({ ...newProvider, apiKey: e.target.value })}
+                          />
+                          <Input 
+                            size="sm" 
+                            placeholder="Base URL (Optional)" 
+                            value={newProvider.baseUrl}
+                            onChange={(e) => setNewProvider({ ...newProvider, baseUrl: e.target.value })}
+                          />
+                          <Button size="sm" w="full" colorScheme="blue" onClick={handleAddProvider}>Add</Button>
+                        </VStack>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+
+                  <VStack align="stretch" spacing={2}>
+                    {settings.providers.map(provider => (
+                      <HStack key={provider.id} p={2} bg="whiteAlpha.50" borderRadius="md" justify="space-between">
+                        <VStack align="start" spacing={0}>
+                          <Text fontSize="xs" fontWeight="bold">{provider.name}</Text>
+                          <Text fontSize="10px" color="whiteAlpha.400">{provider.apiKey ? '••••••••' : 'No Key'}</Text>
+                        </VStack>
+                        <HStack>
+                          <Button 
+                            size="xs" 
+                            variant={settings.activeProviderId === provider.id ? 'solid' : 'ghost'}
+                            colorScheme={settings.activeProviderId === provider.id ? 'blue' : 'gray'}
+                            onClick={() => updateSettings({ activeProviderId: provider.id })}
+                          >
+                            {settings.activeProviderId === provider.id ? 'Active' : 'Select'}
+                          </Button>
+                          {provider.id !== 'google' && (
+                            <IconButton 
+                              aria-label="Remove" 
+                              icon={<Trash2 size={12} />} 
+                              size="xs" 
+                              variant="ghost" 
+                              colorScheme="red"
+                              onClick={() => removeProvider(provider.id)}
+                            />
+                          )}
+                        </HStack>
+                      </HStack>
+                    ))}
+                  </VStack>
                 </VStack>
               </Box>
 
@@ -1012,7 +1111,7 @@ export default function App() {
                       <option key={m.name} value={m.name} style={{ background: '#1a1a24' }}>{m.displayName || m.name}</option>
                     ))}
                   </Select>
-                  <IconButton aria-label="Fetch Models" icon={<RefreshCw size={14} />} size="sm" onClick={fetchModels} />
+                  <IconButton aria-label="Fetch Models" icon={<RefreshCw size={14} />} size="sm" onClick={() => handleTestKey()} isLoading={isTestingKey} />
                 </HStack>
               </FormControl>
 

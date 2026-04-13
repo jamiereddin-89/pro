@@ -1,7 +1,18 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { doc, setDoc, onSnapshot, collection, addDoc, query, orderBy, getDoc } from 'firebase/firestore';
-import { ModelType, ChatMessage, generateSite, updateSite, generateComponent, listModels, generateImage } from '../lib/gemini';
+import { 
+  ModelType, 
+  ChatMessage, 
+  generateSite, 
+  updateSite, 
+  generateComponent, 
+  listModels, 
+  generateImage,
+  generateSiteStream,
+  updateSiteStream,
+  generateComponentStream
+} from '../lib/gemini';
 import { db, auth } from '../firebase';
 
 export type GenerationMode = 'website' | 'component';
@@ -24,18 +35,30 @@ export interface Project {
   isAutoSave?: boolean;
 }
 
+export interface AIProvider {
+  id: string;
+  name: string;
+  apiKey: string;
+  baseUrl?: string;
+  availableModels: any[];
+}
+
 export interface AppSettings {
   theme: 'vs-dark' | 'light' | 'hc-black';
   fontSize: number;
   autoPreview: boolean;
   wordWrap: 'on' | 'off';
   minimap: boolean;
-  apiKey: string;
+  apiKey: string; // Legacy, keep for compatibility
   customModel: string;
+  providers: AIProvider[];
+  activeProviderId: string;
 }
 
 interface AppState {
   html: string;
+  lastSavedHtml: string;
+  lastAutoSaveTime: number | null;
   userInput: string;
   isLoading: boolean;
   messages: ChatMessage[];
@@ -87,15 +110,18 @@ interface AppState {
   redo: () => void;
   
   // Project & Version Actions
-  saveProject: (name: string, isAutoSave?: boolean) => void;
+  saveProject: (name: string, isAutoSave?: boolean) => Promise<void>;
   loadProject: (id: string) => void;
+  copyProject: (id: string) => void;
   deleteProject: (id: string) => void;
   createVersion: (description: string) => void;
   revertToVersion: (versionId: string) => void;
   
   // API Actions
-  fetchModels: () => Promise<void>;
+  fetchModels: (providerId?: string) => Promise<void>;
   generateImageAction: (prompt: string) => Promise<void>;
+  addProvider: (provider: Omit<AIProvider, 'availableModels'>) => void;
+  removeProvider: (id: string) => void;
   
   // Firebase Sync
   syncProject: (projectId: string) => void;
@@ -106,6 +132,8 @@ export const useStore = create<AppState>()(
   persist(
     (set, get) => ({
       html: '',
+      lastSavedHtml: '',
+      lastAutoSaveTime: null,
       userInput: '',
       isLoading: false,
       messages: [],
@@ -131,6 +159,10 @@ export const useStore = create<AppState>()(
         minimap: false,
         apiKey: '',
         customModel: '',
+        providers: [
+          { id: 'google', name: 'Google Gemini', apiKey: '', availableModels: [] }
+        ],
+        activeProviderId: 'google',
       },
 
       setHtml: (html) => {
@@ -201,19 +233,26 @@ export const useStore = create<AppState>()(
         const actionType = generationMode === 'component' ? 'component' : (html ? 'update' : 'generate');
         set({ lastAction: { type: actionType, payload: prompt } });
 
+        const activeProvider = settings.providers.find(p => p.id === settings.activeProviderId);
+        const apiKey = activeProvider?.apiKey || settings.apiKey || undefined;
+
         try {
-          let result = '';
-          const apiKey = settings.apiKey || undefined;
+          const onChunk = (chunk: string) => {
+            const cleaned = chunk.replace(/```html/g, '').replace(/```/g, '').trim();
+            set({ html: cleaned });
+          };
+
+          let finalResult = '';
           
           if (generationMode === 'component') {
-            result = await generateComponent(prompt, model as ModelType, isThinking, apiKey);
+            finalResult = await generateComponentStream(prompt, onChunk, model as ModelType, isThinking, apiKey);
           } else if (actionType === 'generate') {
-            result = await generateSite(prompt, model as ModelType, isThinking, apiKey);
+            finalResult = await generateSiteStream(prompt, onChunk, model as ModelType, isThinking, apiKey);
           } else {
-            result = await updateSite(html, prompt, model as ModelType, isThinking, apiKey);
+            finalResult = await updateSiteStream(html, prompt, onChunk, model as ModelType, isThinking, apiKey);
           }
 
-          const cleanedHtml = result.replace(/```html/g, '').replace(/```/g, '').trim();
+          const cleanedHtml = finalResult.replace(/```html/g, '').replace(/```/g, '').trim();
           
           if (generationMode === 'website' && !cleanedHtml.startsWith('<!DOCTYPE html>') && !cleanedHtml.includes('<html')) {
             throw new Error("The AI returned an invalid HTML structure. Please try again.");
@@ -249,7 +288,14 @@ export const useStore = create<AppState>()(
           get().createVersion(prompt.substring(0, 30) + (prompt.length > 30 ? '...' : ''));
         } catch (err: any) {
           console.error("AI Action Error:", err);
-          const errorMessage = err.message || "An unexpected error occurred.";
+          let errorMessage = err.message || "An unexpected error occurred.";
+          
+          if (errorMessage.includes('API_KEY_INVALID')) {
+            errorMessage = "Invalid API Key. Please check your settings and try again.";
+          } else if (errorMessage.includes('fetch failed')) {
+            errorMessage = "Network error. Please check your internet connection.";
+          }
+
           set({ 
             error: errorMessage, 
             isLoading: false 
@@ -307,7 +353,9 @@ export const useStore = create<AppState>()(
 
         set({ 
           savedProjects: newSavedProjects, 
-          currentProjectId: isAutoSave ? currentProjectId : id 
+          currentProjectId: isAutoSave ? currentProjectId : id,
+          lastSavedHtml: isAutoSave ? get().lastSavedHtml : html,
+          lastAutoSaveTime: isAutoSave ? Date.now() : get().lastAutoSaveTime
         });
       },
 
@@ -317,6 +365,7 @@ export const useStore = create<AppState>()(
         if (project) {
           set({ 
             html: project.html, 
+            lastSavedHtml: project.html,
             messages: project.messages, 
             currentProjectId: project.isAutoSave ? null : id,
             generationMode: project.mode,
@@ -324,6 +373,22 @@ export const useStore = create<AppState>()(
             historyIndex: 0,
             versions: project.versions || []
           });
+        }
+      },
+
+      copyProject: (id) => {
+        const { savedProjects } = get();
+        const project = savedProjects.find(p => p.id === id);
+        if (project) {
+          const newId = Math.random().toString(36).substring(7);
+          const newProject: Project = {
+            ...project,
+            id: newId,
+            name: `${project.name} (Copy)`,
+            timestamp: Date.now(),
+            isAutoSave: false
+          };
+          set({ savedProjects: [...savedProjects, newProject] });
         }
       },
 
@@ -354,14 +419,49 @@ export const useStore = create<AppState>()(
         }
       },
 
-      fetchModels: async () => {
+      fetchModels: async (providerId) => {
         const { settings } = get();
+        const targetProviderId = providerId || settings.activeProviderId;
+        const provider = settings.providers.find(p => p.id === targetProviderId);
+        const apiKey = provider?.apiKey || settings.apiKey || undefined;
+
         try {
-          const models = await listModels(settings.apiKey || undefined);
-          set({ availableModels: models });
-        } catch (err) {
+          const models = await listModels(apiKey);
+          
+          set((state) => ({
+            settings: {
+              ...state.settings,
+              providers: state.settings.providers.map(p => 
+                p.id === targetProviderId ? { ...p, availableModels: models } : p
+              )
+            },
+            availableModels: targetProviderId === settings.activeProviderId ? models : state.availableModels
+          }));
+        } catch (err: any) {
           console.error("Failed to fetch models:", err);
+          let msg = "Failed to fetch models.";
+          if (err.message?.includes('API_KEY_INVALID')) msg = "Invalid API Key for this provider.";
+          set({ error: msg });
         }
+      },
+
+      addProvider: (provider) => {
+        set((state) => ({
+          settings: {
+            ...state.settings,
+            providers: [...state.settings.providers, { ...provider, availableModels: [] }]
+          }
+        }));
+      },
+
+      removeProvider: (id) => {
+        set((state) => ({
+          settings: {
+            ...state.settings,
+            providers: state.settings.providers.filter(p => p.id !== id),
+            activeProviderId: state.settings.activeProviderId === id ? 'google' : state.settings.activeProviderId
+          }
+        }));
       },
 
       generateImageAction: async (prompt: string) => {
