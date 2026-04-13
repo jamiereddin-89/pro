@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import { ModelType, ChatMessage, generateSite, updateSite, generateComponent } from '../lib/gemini';
+import { ModelType, ChatMessage, generateSite, updateSite, generateComponent, listModels } from '../lib/gemini';
 
 export type GenerationMode = 'website' | 'component';
 
@@ -19,14 +19,17 @@ export interface Project {
   timestamp: number;
   mode: GenerationMode;
   versions: Version[];
+  isAutoSave?: boolean;
 }
 
 export interface AppSettings {
-  theme: 'dark' | 'light';
+  theme: 'vs-dark' | 'light' | 'hc-black';
   fontSize: number;
   autoPreview: boolean;
   wordWrap: 'on' | 'off';
   minimap: boolean;
+  apiKey: string;
+  customModel: string;
 }
 
 interface AppState {
@@ -34,7 +37,7 @@ interface AppState {
   userInput: string;
   isLoading: boolean;
   messages: ChatMessage[];
-  model: ModelType;
+  model: ModelType | string;
   isThinking: boolean;
   previewMode: 'desktop' | 'tablet' | 'mobile';
   activeTab: 'preview' | 'code';
@@ -50,22 +53,25 @@ interface AppState {
   currentProjectId: string | null;
   generationMode: GenerationMode;
   versions: Version[];
+  searchQuery: string;
 
   // Settings
   settings: AppSettings;
+  availableModels: any[];
 
   // Actions
   setHtml: (html: string) => void;
   setUserInput: (input: string) => void;
   setIsLoading: (loading: boolean) => void;
   setMessages: (messages: ChatMessage[]) => void;
-  setModel: (model: ModelType) => void;
+  setModel: (model: ModelType | string) => void;
   setIsThinking: (isThinking: boolean) => void;
   setPreviewMode: (mode: 'desktop' | 'tablet' | 'mobile') => void;
   setActiveTab: (tab: 'preview' | 'code') => void;
   setError: (error: string | null) => void;
   setGenerationMode: (mode: GenerationMode) => void;
   updateSettings: (settings: Partial<AppSettings>) => void;
+  setSearchQuery: (query: string) => void;
   
   // Complex Actions
   addMessage: (msg: ChatMessage) => void;
@@ -79,11 +85,14 @@ interface AppState {
   redo: () => void;
   
   // Project & Version Actions
-  saveProject: (name: string) => void;
+  saveProject: (name: string, isAutoSave?: boolean) => void;
   loadProject: (id: string) => void;
   deleteProject: (id: string) => void;
   createVersion: (description: string) => void;
   revertToVersion: (versionId: string) => void;
+  
+  // API Actions
+  fetchModels: () => Promise<void>;
 }
 
 export const useStore = create<AppState>()(
@@ -105,12 +114,16 @@ export const useStore = create<AppState>()(
       currentProjectId: null,
       generationMode: 'website',
       versions: [],
+      searchQuery: '',
+      availableModels: [],
       settings: {
-        theme: 'dark',
+        theme: 'vs-dark',
         fontSize: 14,
         autoPreview: true,
         wordWrap: 'on',
         minimap: false,
+        apiKey: '',
+        customModel: '',
       },
 
       setHtml: (html) => {
@@ -127,6 +140,7 @@ export const useStore = create<AppState>()(
       setError: (error) => set({ error }),
       setGenerationMode: (generationMode) => set({ generationMode }),
       updateSettings: (newSettings) => set((state) => ({ settings: { ...state.settings, ...newSettings } })),
+      setSearchQuery: (searchQuery) => set({ searchQuery }),
 
       addMessage: (msg) => set((state) => ({ messages: [...state.messages, msg] })),
       
@@ -174,7 +188,7 @@ export const useStore = create<AppState>()(
       },
 
       executeAiAction: async (prompt: string) => {
-        const { html, model, isThinking, generationMode } = get();
+        const { html, model, isThinking, generationMode, settings } = get();
         set({ isLoading: true, error: null });
         
         const actionType = generationMode === 'component' ? 'component' : (html ? 'update' : 'generate');
@@ -182,12 +196,14 @@ export const useStore = create<AppState>()(
 
         try {
           let result = '';
+          const apiKey = settings.apiKey || undefined;
+          
           if (generationMode === 'component') {
-            result = await generateComponent(prompt, model, isThinking);
+            result = await generateComponent(prompt, model as ModelType, isThinking, apiKey);
           } else if (actionType === 'generate') {
-            result = await generateSite(prompt, model, isThinking);
+            result = await generateSite(prompt, model as ModelType, isThinking, apiKey);
           } else {
-            result = await updateSite(html, prompt, model, isThinking);
+            result = await updateSite(html, prompt, model as ModelType, isThinking, apiKey);
           }
 
           const cleanedHtml = result.replace(/```html/g, '').replace(/```/g, '').trim();
@@ -207,7 +223,6 @@ export const useStore = create<AppState>()(
             content: actionType === 'update' ? "I've updated the site." : `I've generated your ${generationMode}.` 
           });
 
-          // Auto-create a version snapshot
           get().createVersion(prompt.substring(0, 30) + (prompt.length > 30 ? '...' : ''));
         } catch (err: any) {
           console.error("AI Action Error:", err);
@@ -230,17 +245,22 @@ export const useStore = create<AppState>()(
         }
       },
 
-      saveProject: (name) => {
+      saveProject: (name, isAutoSave = false) => {
         const { html, messages, savedProjects, currentProjectId, generationMode, versions } = get();
-        const id = currentProjectId || Math.random().toString(36).substring(7);
+        
+        const id = isAutoSave 
+          ? (currentProjectId ? `${currentProjectId}-autosave` : 'autosave-latest')
+          : (currentProjectId || Math.random().toString(36).substring(7));
+          
         const newProject: Project = {
           id,
-          name,
+          name: isAutoSave ? `[Auto-save] ${name || 'Untitled'}` : name,
           html,
           messages,
           timestamp: Date.now(),
           mode: generationMode,
-          versions
+          versions,
+          isAutoSave
         };
 
         const existingIndex = savedProjects.findIndex(p => p.id === id);
@@ -252,7 +272,10 @@ export const useStore = create<AppState>()(
           newSavedProjects.push(newProject);
         }
 
-        set({ savedProjects: newSavedProjects, currentProjectId: id });
+        set({ 
+          savedProjects: newSavedProjects, 
+          currentProjectId: isAutoSave ? currentProjectId : id 
+        });
       },
 
       loadProject: (id) => {
@@ -262,7 +285,7 @@ export const useStore = create<AppState>()(
           set({ 
             html: project.html, 
             messages: project.messages, 
-            currentProjectId: id,
+            currentProjectId: project.isAutoSave ? null : id,
             generationMode: project.mode,
             history: [project.html],
             historyIndex: 0,
@@ -286,7 +309,7 @@ export const useStore = create<AppState>()(
           timestamp: Date.now(),
           description
         };
-        set({ versions: [newVersion, ...versions].slice(0, 20) }); // Keep last 20 versions
+        set({ versions: [newVersion, ...versions].slice(0, 20) });
       },
 
       revertToVersion: (versionId) => {
@@ -296,10 +319,20 @@ export const useStore = create<AppState>()(
           get().setHtml(version.html);
           get().addMessage({ role: 'model', content: `Reverted to version: ${version.description}` });
         }
+      },
+
+      fetchModels: async () => {
+        const { settings } = get();
+        try {
+          const models = await listModels(settings.apiKey || undefined);
+          set({ availableModels: models });
+        } catch (err) {
+          console.error("Failed to fetch models:", err);
+        }
       }
     }),
     {
-      name: 'gemini-builder-storage-v2',
+      name: 'gemini-builder-storage-v3',
       partialize: (state) => ({ 
         savedProjects: state.savedProjects,
         model: state.model,

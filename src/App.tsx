@@ -33,6 +33,8 @@ import {
   ModalCloseButton,
   useDisclosure,
   Input,
+  InputGroup,
+  InputRightElement,
   Menu,
   MenuButton,
   MenuList,
@@ -51,7 +53,9 @@ import {
   TabPanels,
   Tab,
   TabPanel,
-  Badge
+  Badge,
+  Select,
+  InputLeftElement
 } from '@chakra-ui/react';
 import { 
   Sparkles, 
@@ -80,12 +84,19 @@ import {
   Globe,
   MoreVertical,
   ChevronRight,
-  ChevronDown
+  ChevronDown,
+  Search,
+  Key,
+  EyeOff,
+  FileJson,
+  Download
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import Editor from '@monaco-editor/react';
+import JSZip from 'jszip';
+import { saveAs } from 'file-saver';
 import { ModelType } from './lib/gemini';
-import { useStore, Version } from './store/useStore';
+import { useStore, Version, Project } from './store/useStore';
 
 export default function App() {
   const {
@@ -105,6 +116,8 @@ export default function App() {
     generationMode,
     versions,
     settings,
+    searchQuery,
+    availableModels,
     setUserInput,
     setModel,
     setIsThinking,
@@ -122,11 +135,15 @@ export default function App() {
     setGenerationMode,
     updateSettings,
     revertToVersion,
-    setHtml
+    setHtml,
+    setSearchQuery,
+    fetchModels
   } = useStore();
 
   const [copied, setCopied] = useState(false);
   const [projectName, setProjectName] = useState('');
+  const [showApiKey, setShowApiKey] = useState(false);
+  const [isTestingKey, setIsTestingKey] = useState(false);
   const chatEndRef = useRef<HTMLDivElement>(null);
   const toast = useToast();
   
@@ -134,6 +151,16 @@ export default function App() {
   const { isOpen: isLoadOpen, onOpen: onLoadOpen, onClose: onLoadClose } = useDisclosure();
   const { isOpen: isSettingsOpen, onOpen: onSettingsOpen, onClose: onSettingsClose } = useDisclosure();
   const { isOpen: isVersionsOpen, onOpen: onVersionsOpen, onClose: onVersionsClose } = useDisclosure();
+
+  // Auto-save effect
+  useEffect(() => {
+    const interval = setInterval(() => {
+      if (html) {
+        saveProject(projectName || 'Auto-saved Project', true);
+      }
+    }, 120000); // Every 2 minutes
+    return () => clearInterval(interval);
+  }, [html, projectName, saveProject]);
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -165,6 +192,45 @@ export default function App() {
     });
     setTimeout(() => setCopied(false), 2000);
   };
+
+  const handleExportZip = async () => {
+    const zip = new JSZip();
+    zip.file("index.html", html);
+    const content = await zip.generateAsync({ type: "blob" });
+    saveAs(content, `${projectName || 'project'}.zip`);
+    toast({
+      title: "Project exported as ZIP",
+      status: "success",
+      duration: 2000,
+    });
+  };
+
+  const handleTestKey = async () => {
+    setIsTestingKey(true);
+    try {
+      await fetchModels();
+      toast({
+        title: "API Key is valid",
+        description: `Found ${availableModels.length} models`,
+        status: "success",
+        duration: 3000,
+      });
+    } catch (err) {
+      toast({
+        title: "Invalid API Key",
+        description: "Could not fetch models with this key.",
+        status: "error",
+        duration: 3000,
+      });
+    } finally {
+      setIsTestingKey(false);
+    }
+  };
+
+  const filteredProjects = savedProjects.filter(p => 
+    p.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    p.html.toLowerCase().includes(searchQuery.toLowerCase())
+  );
 
   const handleSave = () => {
     if (!projectName.trim()) return;
@@ -516,18 +582,25 @@ export default function App() {
             >
               Refactor
             </Button>
-            <Button
-              size="sm"
-              leftIcon={copied ? <Check size={14} /> : <Copy size={14} />}
-              onClick={copyToClipboard}
-              isDisabled={!html}
-              variant="outline"
-              borderColor="whiteAlpha.200"
-              fontSize="xs"
-              colorScheme={copied ? 'green' : 'gray'}
-            >
-              {copied ? 'Copied' : 'Copy Code'}
-            </Button>
+            <Menu>
+              <MenuButton
+                as={IconButton}
+                aria-label="Export"
+                icon={<Download size={16} />}
+                variant="outline"
+                size="sm"
+                borderColor="whiteAlpha.200"
+                color="whiteAlpha.600"
+                _hover={{ bg: 'whiteAlpha.100', color: 'white' }}
+                isDisabled={!html}
+              />
+              <Portal>
+                <MenuList bg="#1a1a24" borderColor="whiteAlpha.200" zIndex={1000}>
+                  <MenuItem icon={<Globe size={14} />} onClick={copyToClipboard} bg="transparent" _hover={{ bg: 'whiteAlpha.100' }}>Copy HTML</MenuItem>
+                  <MenuItem icon={<FileJson size={14} />} onClick={handleExportZip} bg="transparent" _hover={{ bg: 'whiteAlpha.100' }}>Export ZIP</MenuItem>
+                </MenuList>
+              </Portal>
+            </Menu>
           </HStack>
         </Flex>
 
@@ -597,9 +670,13 @@ export default function App() {
                   <Editor
                     height="100%"
                     defaultLanguage="html"
-                    theme={settings.theme === 'dark' ? 'vs-dark' : 'light'}
+                    theme={settings.theme}
                     value={html}
-                    onChange={(value) => setHtml(value || '')}
+                    onChange={(value) => {
+                      if (settings.autoPreview) {
+                        setHtml(value || '');
+                      }
+                    }}
                     options={{
                       fontSize: settings.fontSize,
                       wordWrap: settings.wordWrap,
@@ -673,18 +750,35 @@ export default function App() {
           <ModalHeader fontSize="md">Load Project</ModalHeader>
           <ModalCloseButton />
           <ModalBody maxH="400px" overflowY="auto">
-            {savedProjects.length === 0 ? (
-              <Text fontSize="xs" color="whiteAlpha.400" textAlign="center" py={8}>No saved projects found.</Text>
+            <VStack spacing={4} align="stretch" mb={4}>
+              <InputGroup size="sm">
+                <InputLeftElement pointerEvents="none">
+                  <Search size={14} color="gray" />
+                </InputLeftElement>
+                <Input 
+                  placeholder="Search projects..." 
+                  bg="whiteAlpha.50" 
+                  borderColor="whiteAlpha.200"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                />
+              </InputGroup>
+            </VStack>
+            {filteredProjects.length === 0 ? (
+              <Text fontSize="xs" color="whiteAlpha.400" textAlign="center" py={8}>No projects found.</Text>
             ) : (
               <VStack spacing={2} align="stretch">
-                {savedProjects.map(project => (
+                {filteredProjects.map(project => (
                   <HStack key={project.id} p={3} bg="whiteAlpha.50" borderRadius="lg" justify="space-between" _hover={{ bg: 'whiteAlpha.100' }}>
                     <VStack align="start" spacing={0}>
-                      <Text fontSize="sm" fontWeight="bold">{project.name}</Text>
+                      <HStack>
+                        <Text fontSize="sm" fontWeight="bold">{project.name}</Text>
+                        {project.isAutoSave && <Badge colorScheme="orange" fontSize="8px">Auto-save</Badge>}
+                      </HStack>
                       <Text fontSize="10px" color="whiteAlpha.500">{new Date(project.timestamp).toLocaleString()} • {project.mode}</Text>
                     </VStack>
                     <HStack>
-                      <Button size="xs" colorScheme="blue" onClick={() => { loadProject(project.id); onLoadClose(); }}>Load</Button>
+                      <Button size="xs" colorScheme="blue" onClick={() => { loadProject(project.id); setProjectName(project.name); onLoadClose(); }}>Load</Button>
                       <IconButton aria-label="Delete" icon={<Trash2 size={14} />} size="xs" colorScheme="red" variant="ghost" onClick={() => deleteProject(project.id)} />
                     </HStack>
                   </HStack>
@@ -706,43 +800,76 @@ export default function App() {
           <ModalCloseButton />
           <ModalBody>
             <VStack spacing={6} align="stretch">
+              {/* API Key Section */}
+              <Box p={4} bg="whiteAlpha.50" borderRadius="xl" border="1px solid" borderColor="whiteAlpha.100">
+                <VStack align="stretch" spacing={3}>
+                  <HStack justify="space-between">
+                    <HStack>
+                      <Key size={16} />
+                      <Text fontSize="sm" fontWeight="bold">Gemini API Key</Text>
+                    </HStack>
+                    <Button size="xs" variant="ghost" leftIcon={<RefreshCw size={12} />} onClick={handleTestKey} isLoading={isTestingKey}>Test Key</Button>
+                  </HStack>
+                  <InputGroup size="sm">
+                    <Input
+                      type={showApiKey ? 'text' : 'password'}
+                      placeholder="Enter your Gemini API Key"
+                      value={settings.apiKey}
+                      onChange={(e) => updateSettings({ apiKey: e.target.value })}
+                      bg="blackAlpha.300"
+                      borderColor="whiteAlpha.200"
+                    />
+                    <InputRightElement>
+                      <IconButton
+                        aria-label="Toggle visibility"
+                        icon={showApiKey ? <EyeOff size={14} /> : <Eye size={14} />}
+                        variant="ghost"
+                        size="xs"
+                        onClick={() => setShowApiKey(!showApiKey)}
+                      />
+                    </InputRightElement>
+                  </InputGroup>
+                  <Text fontSize="10px" color="whiteAlpha.400">Your key is stored locally in your browser.</Text>
+                </VStack>
+              </Box>
+
               <FormControl>
                 <FormLabel fontSize="sm">AI Model</FormLabel>
-                <Menu>
-                  <MenuButton as={Button} size="sm" w="full" rightIcon={<ChevronDown size={14} />} bg="whiteAlpha.50" _hover={{ bg: 'whiteAlpha.100' }} textAlign="left">
-                    {model === ModelType.FLASH ? 'Gemini 2.0 Flash' : 'Gemini 2.0 Pro'} {isThinking ? '(Thinking)' : ''}
-                  </MenuButton>
-                  <Portal>
-                    <MenuList bg="#1a1a24" borderColor="whiteAlpha.200" zIndex={2000}>
-                      <MenuItem 
-                        bg="transparent" 
-                        _hover={{ bg: 'whiteAlpha.100' }} 
-                        onClick={() => { setModel(ModelType.FLASH); setIsThinking(false); }}
-                        icon={<Zap size={14} />}
-                      >
-                        Gemini 2.0 Flash (Fast)
-                      </MenuItem>
-                      <MenuItem 
-                        bg="transparent" 
-                        _hover={{ bg: 'whiteAlpha.100' }} 
-                        onClick={() => { setModel(ModelType.PRO); setIsThinking(true); }}
-                        icon={<BrainCircuit size={14} />}
-                      >
-                        Gemini 2.0 Pro (Thinking)
-                      </MenuItem>
-                    </MenuList>
-                  </Portal>
-                </Menu>
+                <HStack>
+                  <Select 
+                    size="sm" 
+                    bg="whiteAlpha.50" 
+                    borderColor="whiteAlpha.200"
+                    value={model}
+                    onChange={(e) => setModel(e.target.value)}
+                  >
+                    <option value={ModelType.FLASH} style={{ background: '#1a1a24' }}>Gemini 2.0 Flash (Fast)</option>
+                    <option value={ModelType.PRO} style={{ background: '#1a1a24' }}>Gemini 2.0 Pro (Thinking)</option>
+                    <option value={ModelType.LITE} style={{ background: '#1a1a24' }}>Gemini 2.0 Lite</option>
+                    {availableModels.map(m => (
+                      <option key={m.name} value={m.name} style={{ background: '#1a1a24' }}>{m.displayName || m.name}</option>
+                    ))}
+                  </Select>
+                  <IconButton aria-label="Fetch Models" icon={<RefreshCw size={14} />} size="sm" onClick={fetchModels} />
+                </HStack>
               </FormControl>
 
               <Divider borderColor="whiteAlpha.100" />
 
               <FormControl display="flex" alignItems="center" justifyContent="space-between">
-                <FormLabel mb="0" fontSize="sm">Editor Theme (Dark)</FormLabel>
-                <Switch 
-                  isChecked={settings.theme === 'dark'} 
-                  onChange={(e) => updateSettings({ theme: e.target.checked ? 'dark' : 'light' })} 
-                />
+                <FormLabel mb="0" fontSize="sm">Editor Theme</FormLabel>
+                <Select 
+                  size="sm" 
+                  w="150px"
+                  bg="whiteAlpha.50" 
+                  borderColor="whiteAlpha.200"
+                  value={settings.theme}
+                  onChange={(e) => updateSettings({ theme: e.target.value as any })}
+                >
+                  <option value="vs-dark" style={{ background: '#1a1a24' }}>Dark</option>
+                  <option value="light" style={{ background: '#1a1a24' }}>Light</option>
+                  <option value="hc-black" style={{ background: '#1a1a24' }}>High Contrast</option>
+                </Select>
               </FormControl>
               
               <FormControl display="flex" alignItems="center" justifyContent="space-between">
@@ -761,6 +888,14 @@ export default function App() {
                     <NumberDecrementStepper />
                   </NumberInputStepper>
                 </NumberInput>
+              </FormControl>
+
+              <FormControl display="flex" alignItems="center" justifyContent="space-between">
+                <FormLabel mb="0" fontSize="sm">Live Preview (Auto-update)</FormLabel>
+                <Switch 
+                  isChecked={settings.autoPreview} 
+                  onChange={(e) => updateSettings({ autoPreview: e.target.checked })} 
+                />
               </FormControl>
 
               <FormControl display="flex" alignItems="center" justifyContent="space-between">

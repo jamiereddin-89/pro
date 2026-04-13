@@ -25,11 +25,20 @@ MODERN BEST PRACTICES:
 8. Use modern JS features (ES6+, async/await, arrow functions).
 `;
 
+function getClient(apiKey?: string) {
+  if (apiKey) {
+    return new GoogleGenAI({ apiKey });
+  }
+  return ai;
+}
+
 export async function generateSite(
   prompt: string,
-  modelType: ModelType = ModelType.FLASH,
-  isThinking: boolean = false
+  modelType: ModelType | string = ModelType.FLASH,
+  isThinking: boolean = false,
+  apiKey?: string
 ) {
+  const client = getClient(apiKey);
   const systemInstruction = `You are an expert front-end web developer. 
 You ALWAYS return a single complete, valid HTML5 document with inline CSS (Tailwind via CDN is preferred) and vanilla JavaScript.
 NEVER use markdown code fences. NEVER explain your code. 
@@ -38,7 +47,7 @@ Ensure the design is modern, responsive, and accessible.
 
 ${MODERN_BEST_PRACTICES}`;
 
-  const response = await ai.models.generateContent({
+  const response = await client.models.generateContent({
     model: modelType,
     contents: `Generate a full website based on this description: ${prompt}`,
     config: {
@@ -58,9 +67,11 @@ ${MODERN_BEST_PRACTICES}`;
 export async function updateSite(
   currentHtml: string,
   instruction: string,
-  modelType: ModelType = ModelType.FLASH,
-  isThinking: boolean = false
+  modelType: ModelType | string = ModelType.FLASH,
+  isThinking: boolean = false,
+  apiKey?: string
 ) {
+  const client = getClient(apiKey);
   const systemInstruction = `You are an expert front-end refactoring assistant.
 The user will provide a full HTML document and a change request.
 You MUST return the ENTIRE updated HTML document.
@@ -79,7 +90,7 @@ ${instruction}
 
 Return the full updated HTML:`;
 
-  const response = await ai.models.generateContent({
+  const response = await client.models.generateContent({
     model: modelType,
     contents: prompt,
     config: {
@@ -96,9 +107,11 @@ Return the full updated HTML:`;
 
 export async function generateComponent(
   prompt: string,
-  modelType: ModelType = ModelType.FLASH,
-  isThinking: boolean = false
+  modelType: ModelType | string = ModelType.FLASH,
+  isThinking: boolean = false,
+  apiKey?: string
 ) {
+  const client = getClient(apiKey);
   const systemInstruction = `You are an expert front-end component developer.
 Generate a specific UI component (e.g., a button, card, form, navigation bar) based on the description.
 The output should be a standalone HTML snippet with necessary CSS (Tailwind via CDN) and JS.
@@ -108,7 +121,7 @@ Ensure the component is modular, accessible, and follows modern best practices.
 
 ${MODERN_BEST_PRACTICES}`;
 
-  const response = await ai.models.generateContent({
+  const response = await client.models.generateContent({
     model: modelType,
     contents: `Generate a UI component based on this description: ${prompt}`,
     config: {
@@ -121,4 +134,15 @@ ${MODERN_BEST_PRACTICES}`;
   });
 
   return response.text || "";
+}
+
+export async function listModels(apiKey?: string) {
+  const client = getClient(apiKey);
+  const response = await client.models.list();
+  // The response is a Pager, which is iterable. Convert it to an array.
+  const models = [];
+  for await (const model of response) {
+    models.push(model);
+  }
+  return models;
 }
