@@ -23,7 +23,14 @@ MODERN BEST PRACTICES:
 6. Use responsive design patterns (mobile-first).
 7. Avoid inline styles where possible; use classes.
 8. Use modern JS features (ES6+, async/await, arrow functions).
+10. For complex UI components (dropdowns, dialogs, tabs), suggest using unstyled, accessible libraries like Radix UI or Headless UI, styled with Tailwind CSS.
 `;
+
+export async function generateImage(description: string): Promise<string> {
+  // Simulated Imagen integration using a high-quality AI image service
+  const encodedPrompt = encodeURIComponent(description);
+  return `https://image.pollinations.ai/prompt/${encodedPrompt}?width=1024&height=1024&nologo=true`;
+}
 
 function getClient(apiKey?: string) {
   if (apiKey) {

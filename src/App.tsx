@@ -92,11 +92,16 @@ import {
   Download
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import Editor from '@monaco-editor/react';
+import Editor, { OnMount } from '@monaco-editor/react';
 import JSZip from 'jszip';
 import { saveAs } from 'file-saver';
-import { ModelType } from './lib/gemini';
+import ReactMarkdown from 'react-markdown';
+import { ModelType, ChatMessage } from './lib/gemini';
 import { useStore, Version, Project } from './store/useStore';
+import { auth, db } from './firebase';
+import { signInWithPopup, GoogleAuthProvider } from 'firebase/auth';
+import { useAuthState } from 'react-firebase-hooks/auth';
+import { collection, addDoc } from 'firebase/firestore';
 
 export default function App() {
   const {
@@ -137,20 +142,28 @@ export default function App() {
     revertToVersion,
     setHtml,
     setSearchQuery,
-    fetchModels
+    fetchModels,
+    generateImageAction,
+    syncProject,
+    stopSync
   } = useStore();
 
+  const [user] = useAuthState(auth);
   const [copied, setCopied] = useState(false);
   const [projectName, setProjectName] = useState('');
   const [showApiKey, setShowApiKey] = useState(false);
   const [isTestingKey, setIsTestingKey] = useState(false);
+  const [imagePrompt, setImagePrompt] = useState('');
+  const [isGeneratingImage, setIsGeneratingImage] = useState(false);
   const chatEndRef = useRef<HTMLDivElement>(null);
+  const iframeRef = useRef<HTMLIFrameElement>(null);
   const toast = useToast();
   
   const { isOpen: isSaveOpen, onOpen: onSaveOpen, onClose: onSaveClose } = useDisclosure();
   const { isOpen: isLoadOpen, onOpen: onLoadOpen, onClose: onLoadClose } = useDisclosure();
   const { isOpen: isSettingsOpen, onOpen: onSettingsOpen, onClose: onSettingsClose } = useDisclosure();
   const { isOpen: isVersionsOpen, onOpen: onVersionsOpen, onClose: onVersionsClose } = useDisclosure();
+  const { isOpen: isImageOpen, onOpen: onImageOpen, onClose: onImageClose } = useDisclosure();
 
   // Auto-save effect
   useEffect(() => {
@@ -162,6 +175,80 @@ export default function App() {
     return () => clearInterval(interval);
   }, [html, projectName, saveProject]);
 
+  const handleLogin = async () => {
+    const provider = new GoogleAuthProvider();
+    try {
+      await signInWithPopup(auth, provider);
+    } catch (err) {
+      console.error("Login failed", err);
+    }
+  };
+
+  const handleReloadPreview = () => {
+    if (iframeRef.current) {
+      iframeRef.current.srcdoc = html;
+    }
+  };
+
+  const handleGenerateImage = async () => {
+    if (!imagePrompt.trim()) return;
+    setIsGeneratingImage(true);
+    await generateImageAction(imagePrompt);
+    setIsGeneratingImage(false);
+    setImagePrompt('');
+    onImageClose();
+  };
+
+  const handleEditorDidMount: OnMount = (editor, monaco) => {
+    // Add custom autocompletion
+    monaco.languages.registerCompletionItemProvider('html', {
+      provideCompletionItems: (model, position) => {
+        const word = model.getWordUntilPosition(position);
+        const range = {
+          startLineNumber: position.lineNumber,
+          endLineNumber: position.lineNumber,
+          startColumn: word.startColumn,
+          endColumn: word.endColumn,
+        };
+        
+        const suggestions = [
+          {
+            label: 'tailwind-cdn',
+            kind: monaco.languages.CompletionItemKind.Snippet,
+            insertText: '<script src="https://cdn.tailwindcss.com"></script>',
+            documentation: 'Tailwind CSS CDN script',
+            range: range,
+          },
+          {
+            label: 'lucide-icons',
+            kind: monaco.languages.CompletionItemKind.Snippet,
+            insertText: '<script src="https://unpkg.com/lucide@latest"></script>\n<script>\n  lucide.createIcons();\n</script>',
+            documentation: 'Lucide Icons CDN and initialization',
+            range: range,
+          },
+          {
+            label: 'flex-center',
+            kind: monaco.languages.CompletionItemKind.Snippet,
+            insertText: 'class="flex items-center justify-center"',
+            documentation: 'Tailwind flex center classes',
+            range: range,
+          }
+        ];
+        
+        return { suggestions: suggestions };
+      },
+    });
+  };
+
+  useEffect(() => {
+    if (currentProjectId) {
+      syncProject(currentProjectId);
+    } else {
+      stopSync();
+    }
+    return () => stopSync();
+  }, [currentProjectId, syncProject, stopSync]);
+
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, isLoading]);
@@ -170,13 +257,31 @@ export default function App() {
     if (!userInput.trim() || isLoading) return;
     const prompt = userInput;
     setUserInput('');
-    useStore.getState().addMessage({ role: 'user', content: prompt });
+    
+    const userMsg: ChatMessage = { role: 'user', content: prompt };
+    useStore.getState().addMessage(userMsg);
+
+    // Sync user message to Firestore
+    if (currentProjectId && auth.currentUser) {
+      const messageRef = collection(db, 'projects', currentProjectId, 'messages');
+      await addDoc(messageRef, { ...userMsg, timestamp: Date.now() });
+    }
+
     await executeAiAction(prompt);
   };
 
   const handleRefactor = async () => {
     if (!html || isLoading) return;
-    useStore.getState().addMessage({ role: 'user', content: "Refactor this code to follow modern best practices." });
+    const prompt = "Refactor this code to follow modern best practices.";
+    const userMsg: ChatMessage = { role: 'user', content: prompt };
+    useStore.getState().addMessage(userMsg);
+
+    // Sync user message to Firestore
+    if (currentProjectId && auth.currentUser) {
+      const messageRef = collection(db, 'projects', currentProjectId, 'messages');
+      await addDoc(messageRef, { ...userMsg, timestamp: Date.now() });
+    }
+
     await executeAiAction("Refactor this code to follow modern best practices while preserving all functionality.");
   };
 
@@ -282,6 +387,26 @@ export default function App() {
             </VStack>
           </HStack>
           <HStack spacing={1}>
+            {!user ? (
+              <Button size="xs" colorScheme="blue" onClick={handleLogin}>Login</Button>
+            ) : (
+              <Tooltip label={user.displayName || 'User'}>
+                <Box w={6} h={6} borderRadius="full" overflow="hidden">
+                  <img src={user.photoURL || ''} alt="User" />
+                </Box>
+              </Tooltip>
+            )}
+            <Tooltip label="Generate Image (Imagen)">
+              <IconButton
+                aria-label="Imagen"
+                icon={<Layout size={16} />}
+                variant="ghost"
+                size="sm"
+                onClick={onImageOpen}
+                color="whiteAlpha.600"
+                _hover={{ bg: 'whiteAlpha.100', color: 'white' }}
+              />
+            </Tooltip>
             <Tooltip label="Versions">
               <IconButton
                 aria-label="Versions"
@@ -329,28 +454,50 @@ export default function App() {
         {/* Mode & Model Selector */}
         <VStack spacing={0} borderBottom="1px solid" borderColor="whiteAlpha.100">
           <HStack w="full" px={4} py={2} spacing={2} overflowX="auto" className="no-scrollbar">
-            <Button
-              size="xs"
-              borderRadius="full"
-              leftIcon={<Globe size={12} />}
-              variant={generationMode === 'website' ? 'solid' : 'outline'}
-              colorScheme="blue"
-              onClick={() => setGenerationMode('website')}
-              fontSize="10px"
-            >
-              Website
-            </Button>
-            <Button
-              size="xs"
-              borderRadius="full"
-              leftIcon={<BoxIcon size={12} />}
-              variant={generationMode === 'component' ? 'solid' : 'outline'}
-              colorScheme="cyan"
-              onClick={() => setGenerationMode('component')}
-              fontSize="10px"
-            >
-              Component
-            </Button>
+            <Tooltip label="Website Mode">
+              <IconButton
+                aria-label="Website"
+                icon={<Globe size={16} />}
+                size="sm"
+                borderRadius="full"
+                variant={generationMode === 'website' ? 'solid' : 'outline'}
+                colorScheme="blue"
+                onClick={() => setGenerationMode('website')}
+              />
+            </Tooltip>
+            <Tooltip label="Component Mode">
+              <IconButton
+                aria-label="Component"
+                icon={<BoxIcon size={16} />}
+                size="sm"
+                borderRadius="full"
+                variant={generationMode === 'component' ? 'solid' : 'outline'}
+                colorScheme="cyan"
+                onClick={() => setGenerationMode('component')}
+              />
+            </Tooltip>
+            <Tooltip label="Thinking Mode">
+              <IconButton
+                aria-label="Thinking"
+                icon={<BrainCircuit size={16} />}
+                size="sm"
+                borderRadius="full"
+                variant={isThinking ? 'solid' : 'outline'}
+                colorScheme="purple"
+                onClick={() => { setModel(ModelType.PRO); setIsThinking(true); }}
+              />
+            </Tooltip>
+            <Divider orientation="vertical" h={4} />
+            <Text fontSize="10px" color="whiteAlpha.500" fontWeight="bold">
+              {model.split('/').pop()?.replace('gemini-', '')}
+            </Text>
+            {currentProjectId && (
+              <HStack spacing={-2} pl={2}>
+                <Tooltip label="Active Collaboration">
+                  <Box w={5} h={5} borderRadius="full" bg="green.500" border="2px solid" borderColor="#16161e" />
+                </Tooltip>
+              </HStack>
+            )}
           </HStack>
           
           {generationMode === 'component' && (
@@ -362,31 +509,6 @@ export default function App() {
               <Button size="xs" variant="ghost" fontSize="9px" onClick={() => executeAiAction("Generate a responsive navigation bar with a logo and links.")}>Navbar</Button>
             </HStack>
           )}
-
-          <HStack w="full" px={4} py={2} spacing={2} overflowX="auto" className="no-scrollbar">
-            <Button
-              size="xs"
-              borderRadius="full"
-              leftIcon={<Zap size={12} />}
-              variant={model === ModelType.FLASH && !isThinking ? 'solid' : 'outline'}
-              colorScheme="blue"
-              onClick={() => { setModel(ModelType.FLASH); setIsThinking(false); }}
-              fontSize="10px"
-            >
-              Flash 2.0
-            </Button>
-            <Button
-              size="xs"
-              borderRadius="full"
-              leftIcon={<BrainCircuit size={12} />}
-              variant={isThinking ? 'solid' : 'outline'}
-              colorScheme="purple"
-              onClick={() => { setModel(ModelType.PRO); setIsThinking(true); }}
-              fontSize="10px"
-            >
-              Thinking Mode
-            </Button>
-          </HStack>
         </VStack>
 
         {/* Chat History */}
@@ -421,8 +543,9 @@ export default function App() {
                 borderColor="whiteAlpha.200"
                 fontSize="xs"
                 lineHeight="relaxed"
+                className="markdown-chat"
               >
-                {msg.content}
+                <ReactMarkdown>{msg.content}</ReactMarkdown>
               </Box>
             </Flex>
           ))}
@@ -562,6 +685,8 @@ export default function App() {
 
             {activeTab === 'preview' && (
               <HStack spacing={1} borderLeft="1px solid" borderColor="whiteAlpha.100" pl={4}>
+                <IconButton aria-label="Reload" icon={<RefreshCw size={14} />} size="xs" variant="ghost" onClick={handleReloadPreview} />
+                <Divider orientation="vertical" h={3} />
                 <IconButton aria-label="Desktop" icon={<Monitor size={16} />} size="xs" variant={previewMode === 'desktop' ? 'solid' : 'ghost'} colorScheme={previewMode === 'desktop' ? 'blue' : 'gray'} onClick={() => setPreviewMode('desktop')} />
                 <IconButton aria-label="Tablet" icon={<Tablet size={16} />} size="xs" variant={previewMode === 'tablet' ? 'solid' : 'ghost'} colorScheme={previewMode === 'tablet' ? 'blue' : 'gray'} onClick={() => setPreviewMode('tablet')} />
                 <IconButton aria-label="Mobile" icon={<Smartphone size={16} />} size="xs" variant={previewMode === 'mobile' ? 'solid' : 'ghost'} colorScheme={previewMode === 'mobile' ? 'blue' : 'gray'} onClick={() => setPreviewMode('mobile')} />
@@ -651,6 +776,7 @@ export default function App() {
                       </Box>
                     )}
                     <iframe
+                      ref={iframeRef}
                       srcDoc={html}
                       title="Preview"
                       style={{ width: '100%', height: '100%', border: 'none' }}
@@ -672,6 +798,7 @@ export default function App() {
                     defaultLanguage="html"
                     theme={settings.theme}
                     value={html}
+                    onMount={handleEditorDidMount}
                     onChange={(value) => {
                       if (settings.autoPreview) {
                         setHtml(value || '');
@@ -716,6 +843,41 @@ export default function App() {
           </HStack>
         </Flex>
       </Flex>
+
+      {/* Imagen Modal */}
+      <Modal isOpen={isImageOpen} onClose={onImageClose}>
+        <ModalOverlay backdropFilter="blur(4px)" />
+        <ModalContent bg="#1a1a24" color="white" borderColor="whiteAlpha.200" border="1px solid">
+          <ModalHeader fontSize="md">Generate Image with Imagen</ModalHeader>
+          <ModalCloseButton />
+          <ModalBody>
+            <VStack spacing={4}>
+              <Text fontSize="xs" color="whiteAlpha.600">Describe the image you want to generate. It will be added to your project.</Text>
+              <Textarea 
+                placeholder="A futuristic city with neon lights..." 
+                value={imagePrompt} 
+                onChange={(e) => setImagePrompt(e.target.value)}
+                bg="whiteAlpha.50"
+                borderColor="whiteAlpha.200"
+                fontSize="sm"
+                rows={3}
+              />
+            </VStack>
+          </ModalBody>
+          <ModalFooter>
+            <Button size="sm" variant="ghost" mr={3} onClick={onImageClose}>Cancel</Button>
+            <Button 
+              size="sm" 
+              colorScheme="blue" 
+              onClick={handleGenerateImage} 
+              isLoading={isGeneratingImage}
+              isDisabled={!imagePrompt.trim()}
+            >
+              Generate & Add
+            </Button>
+          </ModalFooter>
+        </ModalContent>
+      </Modal>
 
       {/* Save Project Modal */}
       <Modal isOpen={isSaveOpen} onClose={onSaveClose}>

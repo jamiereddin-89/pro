@@ -1,6 +1,8 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import { ModelType, ChatMessage, generateSite, updateSite, generateComponent, listModels } from '../lib/gemini';
+import { doc, setDoc, onSnapshot, collection, addDoc, query, orderBy, getDoc } from 'firebase/firestore';
+import { ModelType, ChatMessage, generateSite, updateSite, generateComponent, listModels, generateImage } from '../lib/gemini';
+import { db, auth } from '../firebase';
 
 export type GenerationMode = 'website' | 'component';
 
@@ -93,6 +95,11 @@ interface AppState {
   
   // API Actions
   fetchModels: () => Promise<void>;
+  generateImageAction: (prompt: string) => Promise<void>;
+  
+  // Firebase Sync
+  syncProject: (projectId: string) => void;
+  stopSync: () => void;
 }
 
 export const useStore = create<AppState>()(
@@ -217,6 +224,22 @@ export const useStore = create<AppState>()(
             isLoading: false,
             activeTab: 'preview'
           });
+
+          // Sync to Firestore if project is active
+          const { currentProjectId } = get();
+          if (currentProjectId && auth.currentUser) {
+            const projectRef = doc(db, 'projects', currentProjectId);
+            await setDoc(projectRef, { html: cleanedHtml, timestamp: Date.now() }, { merge: true });
+            
+            // Add message to subcollection
+            const messageRef = collection(db, 'projects', currentProjectId, 'messages');
+            await addDoc(messageRef, {
+              role: 'model',
+              content: actionType === 'update' ? "I've updated the site." : `I've generated your ${generationMode}.`,
+              timestamp: Date.now()
+            });
+          }
+
           get().pushToHistory(cleanedHtml);
           get().addMessage({ 
             role: 'model', 
@@ -245,7 +268,7 @@ export const useStore = create<AppState>()(
         }
       },
 
-      saveProject: (name, isAutoSave = false) => {
+      saveProject: async (name, isAutoSave = false) => {
         const { html, messages, savedProjects, currentProjectId, generationMode, versions } = get();
         
         const id = isAutoSave 
@@ -262,6 +285,16 @@ export const useStore = create<AppState>()(
           versions,
           isAutoSave
         };
+
+        // Sync to Firestore if logged in
+        if (auth.currentUser && !isAutoSave) {
+          const projectRef = doc(db, 'projects', id);
+          await setDoc(projectRef, {
+            ...newProject,
+            ownerId: auth.currentUser.uid,
+            collaborators: []
+          }, { merge: true });
+        }
 
         const existingIndex = savedProjects.findIndex(p => p.id === id);
         const newSavedProjects = [...savedProjects];
@@ -328,6 +361,70 @@ export const useStore = create<AppState>()(
           set({ availableModels: models });
         } catch (err) {
           console.error("Failed to fetch models:", err);
+        }
+      },
+
+      generateImageAction: async (prompt: string) => {
+        set({ isLoading: true });
+        try {
+          const imageUrl = await generateImage(prompt);
+          const imageHtml = `<img src="${imageUrl}" alt="${prompt}" class="w-full rounded-lg shadow-lg my-4" referrerPolicy="no-referrer" />`;
+          const currentHtml = get().html;
+          
+          // Insert image at the end of the body or current container
+          let newHtml = currentHtml;
+          if (currentHtml.includes('</body>')) {
+            newHtml = currentHtml.replace('</body>', `${imageHtml}</body>`);
+          } else {
+            newHtml += imageHtml;
+          }
+          
+          get().setHtml(newHtml);
+          get().addMessage({ role: 'model', content: `I've generated an image for: "${prompt}" and added it to the project.` });
+        } catch (err: any) {
+          set({ error: err.message });
+        } finally {
+          set({ isLoading: false });
+        }
+      },
+
+      syncProject: (projectId: string) => {
+        const projectRef = doc(db, 'projects', projectId);
+        
+        // Listen for project changes
+        const unsubscribeProject = onSnapshot(projectRef, (snapshot) => {
+          if (snapshot.exists()) {
+            const data = snapshot.data();
+            // Only update if the local state is different to avoid loops
+            if (data.html !== get().html) {
+              set({ 
+                html: data.html,
+                currentProjectId: projectId,
+                generationMode: data.mode
+              });
+            }
+          }
+        });
+
+        // Listen for messages
+        const messagesRef = collection(db, 'projects', projectId, 'messages');
+        const q = query(messagesRef, orderBy('timestamp', 'asc'));
+        const unsubscribeMessages = onSnapshot(q, (snapshot) => {
+          const messages = snapshot.docs.map(doc => doc.data() as ChatMessage);
+          if (JSON.stringify(messages) !== JSON.stringify(get().messages)) {
+            set({ messages });
+          }
+        });
+
+        // Store unsubscribes in a way we can call them later
+        (window as any)._firebaseUnsubscribes = [unsubscribeProject, unsubscribeMessages];
+      },
+
+      stopSync: () => {
+        const unsubscribes = (window as any)._firebaseUnsubscribes;
+        if (unsubscribes) {
+          unsubscribes.forEach((unsub: any) => unsub());
+          (window as any)._firebaseUnsubscribes = null;
         }
       }
     }),
