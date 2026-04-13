@@ -536,6 +536,21 @@ export const useStore = create<AppState>()(
         isThinking: state.isThinking,
         settings: state.settings
       }),
+      version: 4,
+      migrate: (persistedState: any, version: number) => {
+        if (version < 4) {
+          // Ensure settings and providers exist
+          const state = persistedState as any;
+          if (state.settings && !state.settings.providers) {
+            state.settings.providers = [
+              { id: 'google', name: 'Google Gemini', apiKey: state.settings.apiKey || '', availableModels: [] }
+            ];
+            state.settings.activeProviderId = 'google';
+          }
+          return state;
+        }
+        return persistedState;
+      },
     }
   )
 );

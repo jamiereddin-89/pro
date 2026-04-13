@@ -560,7 +560,7 @@ export default function App() {
             </VStack>
           )}
 
-          {messages.map((msg, i) => (
+          {messages?.map((msg, i) => (
             <Flex key={i} justify={msg.role === 'user' ? 'flex-end' : 'flex-start'}>
               <Box 
                 maxW="85%" 
@@ -977,7 +977,7 @@ export default function App() {
               <Text fontSize="xs" color="whiteAlpha.400" textAlign="center" py={8}>No projects found.</Text>
             ) : (
               <VStack spacing={2} align="stretch">
-                {filteredProjects.map(project => (
+                {filteredProjects?.map(project => (
                   <HStack key={project.id} p={3} bg="whiteAlpha.50" borderRadius="lg" justify="space-between" _hover={{ bg: 'whiteAlpha.100' }}>
                     <VStack align="start" spacing={0}>
                       <HStack>
@@ -1062,7 +1062,7 @@ export default function App() {
                   </AnimatePresence>
 
                   <VStack align="stretch" spacing={2}>
-                    {settings.providers.map(provider => (
+                    {settings.providers?.map(provider => (
                       <HStack key={provider.id} p={2} bg="whiteAlpha.50" borderRadius="md" justify="space-between">
                         <VStack align="start" spacing={0}>
                           <Text fontSize="xs" fontWeight="bold">{provider.name}</Text>
@@ -1107,7 +1107,7 @@ export default function App() {
                     <option value={ModelType.FLASH} style={{ background: '#1a1a24' }}>Gemini 2.0 Flash (Fast)</option>
                     <option value={ModelType.PRO} style={{ background: '#1a1a24' }}>Gemini 2.0 Pro (Thinking)</option>
                     <option value={ModelType.LITE} style={{ background: '#1a1a24' }}>Gemini 2.0 Lite</option>
-                    {availableModels.map(m => (
+                    {availableModels?.map(m => (
                       <option key={m.name} value={m.name} style={{ background: '#1a1a24' }}>{m.displayName || m.name}</option>
                     ))}
                   </Select>
@@ -1193,7 +1193,7 @@ export default function App() {
               <Text fontSize="xs" color="whiteAlpha.400" textAlign="center" py={8}>No versions recorded yet.</Text>
             ) : (
               <VStack spacing={3} align="stretch">
-                {versions.map((v, i) => (
+                {versions?.map((v, i) => (
                   <Box 
                     key={v.id} 
                     p={3} 
