@@ -13,6 +13,7 @@ import {
   updateSiteStream,
   generateComponentStream
 } from '../lib/gemini';
+import { generateOpenAIStream } from '../lib/openai';
 import { db, auth } from '../firebase';
 
 export type GenerationMode = 'website' | 'component';
@@ -244,12 +245,31 @@ export const useStore = create<AppState>()(
 
           let finalResult = '';
           
-          if (generationMode === 'component') {
-            finalResult = await generateComponentStream(prompt, onChunk, model as ModelType, isThinking, apiKey);
-          } else if (actionType === 'generate') {
-            finalResult = await generateSiteStream(prompt, onChunk, model as ModelType, isThinking, apiKey);
+          if (activeProvider && activeProvider.id !== 'google') {
+            // Use OpenAI compatible provider
+            const systemInstruction = generationMode === 'component' 
+              ? "You are an expert front-end component developer. Generate a specific UI component based on the description. Output ONLY the raw HTML/CSS/JS. No markdown code fences."
+              : (html 
+                ? "You are an expert front-end refactoring assistant. Return the ENTIRE updated HTML document. No markdown code fences."
+                : "You are an expert front-end web developer. Return a single complete, valid HTML5 document. No markdown code fences.");
+
+            finalResult = await generateOpenAIStream(
+              prompt, 
+              onChunk, 
+              model as string, 
+              apiKey || '', 
+              activeProvider.baseUrl,
+              systemInstruction
+            );
           } else {
-            finalResult = await updateSiteStream(html, prompt, onChunk, model as ModelType, isThinking, apiKey);
+            // Use Google Gemini
+            if (generationMode === 'component') {
+              finalResult = await generateComponentStream(prompt, onChunk, model as ModelType, isThinking, apiKey);
+            } else if (actionType === 'generate') {
+              finalResult = await generateSiteStream(prompt, onChunk, model as ModelType, isThinking, apiKey);
+            } else {
+              finalResult = await updateSiteStream(html, prompt, onChunk, model as ModelType, isThinking, apiKey);
+            }
           }
 
           const cleanedHtml = finalResult.replace(/```html/g, '').replace(/```/g, '').trim();

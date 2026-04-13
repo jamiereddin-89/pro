@@ -94,6 +94,7 @@ import {
   Minus,
   Cloud,
   SaveAll,
+  FileCode,
   Copy as CopyIcon
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
@@ -213,9 +214,90 @@ export default function App() {
     onImageClose();
   };
 
+  const editorRef = useRef<any>(null);
+  const monacoRef = useRef<any>(null);
+
   const handleEditorDidMount: OnMount = (editor, monaco) => {
+    editorRef.current = editor;
+    monacoRef.current = monaco;
+    // Define custom theme
+    monaco.editor.defineTheme('gemini-dark', {
+      base: 'vs-dark',
+      inherit: true,
+      rules: [
+        { token: 'comment', foreground: '6272a4', fontStyle: 'italic' },
+        { token: 'keyword', foreground: 'ff79c6' },
+        { token: 'identifier', foreground: '50fa7b' },
+        { token: 'string', foreground: 'f1fa8c' },
+        { token: 'number', foreground: 'bd93f9' },
+        { token: 'type', foreground: '8be9fd' },
+        { token: 'tag', foreground: 'ff79c6' },
+        { token: 'attribute.name', foreground: '50fa7b' },
+        { token: 'attribute.value', foreground: 'f1fa8c' },
+      ],
+      colors: {
+        'editor.background': '#1a1a24',
+        'editor.foreground': '#f8f8f2',
+        'editor.lineHighlightBackground': '#2a2a35',
+        'editorCursor.foreground': '#aeafad',
+        'editorWhitespace.foreground': '#404040',
+        'editorIndentGuide.background': '#404040',
+        'editorIndentGuide.activeBackground': '#707070',
+      }
+    });
+    monaco.editor.setTheme('gemini-dark');
+
+    // Configure validation
+    monaco.languages.html.htmlDefaults.setOptions({
+      format: {
+        tabSize: 2,
+        insertSpaces: true,
+      },
+      suggest: {
+        html5: true,
+      },
+      validate: true
+    });
+
+    monaco.languages.css.cssDefaults.setOptions({
+      validate: true,
+      lint: {
+        compatibleVendorPrefixes: 'warning',
+        vendorPrefix: 'warning',
+        duplicateProperties: 'warning',
+        emptyRules: 'warning',
+        importStatement: 'warning',
+        boxModel: 'warning',
+        universalSelector: 'warning',
+        zeroUnits: 'warning',
+        fontFaceDeclaration: 'warning',
+        argumentsInColorFunction: 'error',
+        unknownProperties: 'warning',
+        ieHack: 'warning',
+        unknownVendorSpecificProperties: 'warning',
+        propertyIgnoredDueToDisplay: 'warning',
+        important: 'warning',
+        float: 'warning',
+        idSelector: 'warning',
+      }
+    });
+
+    // Add Keyboard Shortcuts
+    editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => {
+      saveProject(projectName || 'Untitled Project');
+    });
+
+    editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyMod.Shift | monaco.KeyCode.KeyF, () => {
+      editor.getAction('editor.action.formatDocument')?.run();
+    });
+
+    editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyW, () => {
+      const currentWrap = settings.wordWrap;
+      updateSettings({ wordWrap: currentWrap === 'on' ? 'off' : 'on' });
+    });
+
     // Add custom autocompletion
-    monaco.languages.registerCompletionItemProvider('html', {
+    const htmlProvider = monaco.languages.registerCompletionItemProvider('html', {
       provideCompletionItems: (model, position) => {
         const word = model.getWordUntilPosition(position);
         const range = {
@@ -226,6 +308,7 @@ export default function App() {
         };
         
         const suggestions = [
+          // CDN Snippets
           {
             label: 'tailwind-cdn',
             kind: monaco.languages.CompletionItemKind.Snippet,
@@ -241,17 +324,192 @@ export default function App() {
             range: range,
           },
           {
+            label: 'google-fonts',
+            kind: monaco.languages.CompletionItemKind.Snippet,
+            insertText: '<link rel="preconnect" href="https://fonts.googleapis.com">\n<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>\n<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">',
+            documentation: 'Google Fonts (Inter) import',
+            range: range,
+          },
+          {
+            label: 'font-awesome',
+            kind: monaco.languages.CompletionItemKind.Snippet,
+            insertText: '<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">',
+            documentation: 'Font Awesome CDN',
+            range: range,
+          },
+          // Layout Snippets
+          {
             label: 'flex-center',
             kind: monaco.languages.CompletionItemKind.Snippet,
             insertText: 'class="flex items-center justify-center"',
             documentation: 'Tailwind flex center classes',
             range: range,
+          },
+          {
+            label: 'flex-col-center',
+            kind: monaco.languages.CompletionItemKind.Snippet,
+            insertText: 'class="flex flex-col items-center justify-center"',
+            documentation: 'Tailwind flex column center classes',
+            range: range,
+          },
+          {
+            label: 'grid-auto',
+            kind: monaco.languages.CompletionItemKind.Snippet,
+            insertText: 'class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6"',
+            documentation: 'Responsive Tailwind grid',
+            range: range,
+          },
+          {
+            label: 'container-center',
+            kind: monaco.languages.CompletionItemKind.Snippet,
+            insertText: 'class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8"',
+            documentation: 'Centered container with padding',
+            range: range,
+          },
+          {
+            label: 'section-padding',
+            kind: monaco.languages.CompletionItemKind.Snippet,
+            insertText: 'class="py-12 md:py-24"',
+            documentation: 'Responsive section padding',
+            range: range,
+          },
+          // Component Snippets
+          {
+            label: 'button-primary',
+            kind: monaco.languages.CompletionItemKind.Snippet,
+            insertText: '<button class="px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-xl transition-all active:scale-95 shadow-lg shadow-blue-500/30">\n  ${1:Button Text}\n</button>',
+            insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet,
+            documentation: 'Primary Tailwind button with effects',
+            range: range,
+          },
+          {
+            label: 'button-secondary',
+            kind: monaco.languages.CompletionItemKind.Snippet,
+            insertText: '<button class="px-6 py-3 bg-white dark:bg-gray-800 text-gray-900 dark:text-white font-semibold rounded-xl border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700 transition-all active:scale-95">\n  ${1:Button Text}\n</button>',
+            insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet,
+            documentation: 'Secondary Tailwind button',
+            range: range,
+          },
+          {
+            label: 'card-basic',
+            kind: monaco.languages.CompletionItemKind.Snippet,
+            insertText: '<div class="bg-white dark:bg-gray-800 rounded-2xl shadow-xl border border-gray-100 dark:border-gray-700 overflow-hidden hover:shadow-2xl transition-shadow duration-300">\n  <div class="p-8">\n    <h3 class="text-xl font-bold text-gray-900 dark:text-white">${1:Card Title}</h3>\n    <p class="mt-4 text-gray-600 dark:text-gray-400 leading-relaxed">${2:Card content goes here...}</p>\n  </div>\n</div>',
+            insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet,
+            documentation: 'Modern Tailwind card',
+            range: range,
+          },
+          {
+            label: 'input-field',
+            kind: monaco.languages.CompletionItemKind.Snippet,
+            insertText: '<div class="space-y-2">\n  <label class="block text-sm font-medium text-gray-700 dark:text-gray-300">${1:Label}</label>\n  <input type="${2:text}" class="w-full px-4 py-2 bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none transition-all" placeholder="${3:Placeholder}">\n</div>',
+            insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet,
+            documentation: 'Styled input field',
+            range: range,
+          },
+          // JS Snippets
+          {
+            label: 'fetch-api',
+            kind: monaco.languages.CompletionItemKind.Snippet,
+            insertText: 'fetch(\'${1:url}\')\n  .then(res => res.json())\n  .then(data => {\n    console.log(data);\n    ${2}\n  })\n  .catch(err => console.error(err));',
+            insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet,
+            documentation: 'Fetch API snippet',
+            range: range,
+          },
+          {
+            label: 'event-listener',
+            kind: monaco.languages.CompletionItemKind.Snippet,
+            insertText: 'document.getElementById(\'${1:id}\').addEventListener(\'${2:click}\', (e) => {\n  ${3}\n});',
+            insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet,
+            documentation: 'Add event listener',
+            range: range,
+          },
+          {
+            label: 'query-selector',
+            kind: monaco.languages.CompletionItemKind.Snippet,
+            insertText: 'const ${1:el} = document.querySelector(\'${2:.selector}\');',
+            insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet,
+            documentation: 'Query selector',
+            range: range,
           }
         ];
         
         return { suggestions: suggestions };
-      },
+      }
     });
+
+    const cssProvider = monaco.languages.registerCompletionItemProvider('css', {
+      provideCompletionItems: (model, position) => {
+        const word = model.getWordUntilPosition(position);
+        const range = {
+          startLineNumber: position.lineNumber,
+          endLineNumber: position.lineNumber,
+          startColumn: word.startColumn,
+          endColumn: word.endColumn,
+        };
+        
+        const suggestions = [
+          {
+            label: 'glassmorphism',
+            kind: monaco.languages.CompletionItemKind.Snippet,
+            insertText: 'background: rgba(255, 255, 255, 0.1);\nbackdrop-filter: blur(10px);\nborder: 1px solid rgba(255, 255, 255, 0.1);\nborder-radius: 16px;',
+            documentation: 'Glassmorphism effect',
+            range: range,
+          },
+          {
+            label: 'flex-center-css',
+            kind: monaco.languages.CompletionItemKind.Snippet,
+            insertText: 'display: flex;\nalign-items: center;\njustify-content: center;',
+            documentation: 'Flex center CSS',
+            range: range,
+          },
+          {
+            label: 'absolute-center',
+            kind: monaco.languages.CompletionItemKind.Snippet,
+            insertText: 'position: absolute;\ntop: 50%;\nleft: 50%;\ntransform: translate(-50%, -50%);',
+            documentation: 'Absolute center CSS',
+            range: range,
+          }
+        ];
+        
+        return { suggestions: suggestions };
+      }
+    });
+
+    const jsProvider = monaco.languages.registerCompletionItemProvider('javascript', {
+      provideCompletionItems: (model, position) => {
+        const word = model.getWordUntilPosition(position);
+        const range = {
+          startLineNumber: position.lineNumber,
+          endLineNumber: position.lineNumber,
+          startColumn: word.startColumn,
+          endColumn: word.endColumn,
+        };
+        
+        const suggestions = [
+          {
+            label: 'clog',
+            kind: monaco.languages.CompletionItemKind.Snippet,
+            insertText: 'console.log(${1:data});',
+            insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet,
+            documentation: 'Console log',
+            range: range,
+          },
+          {
+            label: 'async-function',
+            kind: monaco.languages.CompletionItemKind.Snippet,
+            insertText: 'async function ${1:name}(${2:params}) {\n  try {\n    ${3}\n  } catch (error) {\n    console.error(error);\n  }\n}',
+            insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet,
+            documentation: 'Async function with try/catch',
+            range: range,
+          }
+        ];
+        
+        return { suggestions: suggestions };
+      }
+    });
+
+    // Store providers to dispose them if needed
+    (window as any)._monacoProviders = [htmlProvider, cssProvider, jsProvider];
   };
 
   useEffect(() => {
@@ -850,6 +1108,33 @@ export default function App() {
                       formatOnType: true,
                     }}
                   />
+                  
+                  {/* Editor Toolbar Overlay */}
+                  <HStack position="absolute" top={2} right={4} spacing={2} zIndex={5}>
+                    <Tooltip label="Format Code (Ctrl+Shift+F)">
+                      <IconButton 
+                        aria-label="Format" 
+                        icon={<FileCode size={14} />} 
+                        size="xs" 
+                        variant="solid" 
+                        bg="whiteAlpha.100" 
+                        _hover={{ bg: 'whiteAlpha.200' }}
+                        onClick={() => editorRef.current?.getAction('editor.action.formatDocument')?.run()}
+                      />
+                    </Tooltip>
+                    <Tooltip label="Save Project (Ctrl+S)">
+                      <IconButton 
+                        aria-label="Save" 
+                        icon={<Save size={14} />} 
+                        size="xs" 
+                        variant="solid" 
+                        bg="blue.600" 
+                        _hover={{ bg: 'blue.700' }}
+                        onClick={() => saveProject(projectName || 'Untitled Project')}
+                      />
+                    </Tooltip>
+                  </HStack>
+
                   {isLoading && (
                     <Box position="absolute" inset={0} bg="blackAlpha.600" backdropFilter="blur(1px)" zIndex={10} p={6}>
                       <Skeleton h="full" w="full" startColor="whiteAlpha.50" endColor="whiteAlpha.200" />
