@@ -1136,8 +1136,16 @@ export default function App() {
                   </HStack>
 
                   {isLoading && (
-                    <Box position="absolute" inset={0} bg="blackAlpha.600" backdropFilter="blur(1px)" zIndex={10} p={6}>
-                      <Skeleton h="full" w="full" startColor="whiteAlpha.50" endColor="whiteAlpha.200" />
+                    <Box position="absolute" top={4} right={20} zIndex={10}>
+                      <HStack bg="blue.600" px={3} py={1} borderRadius="full" boxShadow="0 0 20px rgba(66, 153, 225, 0.4)">
+                        <motion.div
+                          animate={{ opacity: [0.4, 1, 0.4] }}
+                          transition={{ duration: 1.5, repeat: Infinity }}
+                        >
+                          <Box w={2} h={2} borderRadius="full" bg="white" />
+                        </motion.div>
+                        <Text fontSize="10px" fontWeight="bold" color="white" letterSpacing="wider">STREAMING</Text>
+                      </HStack>
                     </Box>
                   )}
                 </Box>

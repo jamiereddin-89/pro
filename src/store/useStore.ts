@@ -237,10 +237,28 @@ export const useStore = create<AppState>()(
         const activeProvider = settings.providers.find(p => p.id === settings.activeProviderId);
         const apiKey = activeProvider?.apiKey || settings.apiKey || undefined;
 
+        // Add initial model message for streaming
+        const modelMsg: ChatMessage = { 
+          role: 'model', 
+          content: '...' 
+        };
+        get().addMessage(modelMsg);
+        const modelMsgIndex = get().messages.length - 1;
+
         try {
           const onChunk = (chunk: string) => {
             const cleaned = chunk.replace(/```html/g, '').replace(/```/g, '').trim();
             set({ html: cleaned });
+            
+            // Update the streaming message
+            const currentMessages = [...get().messages];
+            if (currentMessages[modelMsgIndex]) {
+              currentMessages[modelMsgIndex] = {
+                ...currentMessages[modelMsgIndex],
+                content: `Generating your ${generationMode}...\n\n\`\`\`html\n${cleaned.substring(0, 200)}${cleaned.length > 200 ? '...' : ''}\n\`\`\``
+              };
+              set({ messages: currentMessages });
+            }
           };
 
           let finalResult = '';
@@ -300,10 +318,16 @@ export const useStore = create<AppState>()(
           }
 
           get().pushToHistory(cleanedHtml);
-          get().addMessage({ 
-            role: 'model', 
-            content: actionType === 'update' ? "I've updated the site." : `I've generated your ${generationMode}.` 
-          });
+          
+          // Final update to the streaming message
+          const finalMessages = [...get().messages];
+          if (finalMessages[modelMsgIndex]) {
+            finalMessages[modelMsgIndex] = {
+              ...finalMessages[modelMsgIndex],
+              content: actionType === 'update' ? "I've updated the site." : `I've generated your ${generationMode}.`
+            };
+            set({ messages: finalMessages });
+          }
 
           get().createVersion(prompt.substring(0, 30) + (prompt.length > 30 ? '...' : ''));
         } catch (err: any) {
