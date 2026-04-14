@@ -168,16 +168,17 @@ export default function App() {
     addProvider,
     removeProvider,
     lastSavedHtml,
-    lastAutoSaveTime
+    lastAutoSaveTime,
+    isSaving,
+    isFetchingModels,
+    isGeneratingImage: isGeneratingImageStore
   } = useStore();
 
   const [user] = useAuthState(auth);
   const [copied, setCopied] = useState(false);
   const [projectName, setProjectName] = useState('');
   const [showApiKey, setShowApiKey] = useState(false);
-  const [isTestingKey, setIsTestingKey] = useState(false);
   const [imagePrompt, setImagePrompt] = useState('');
-  const [isGeneratingImage, setIsGeneratingImage] = useState(false);
   const [showAddProvider, setShowAddProvider] = useState(false);
   const [selectedProvider, setSelectedProvider] = useState<AIProvider | null>(null);
   const [newProvider, setNewProvider] = useState({ name: '', apiKey: '', baseUrl: '' });
@@ -253,9 +254,7 @@ export default function App() {
 
   const handleGenerateImage = async () => {
     if (!imagePrompt.trim()) return;
-    setIsGeneratingImage(true);
     await generateImageAction(imagePrompt);
-    setIsGeneratingImage(false);
     setImagePrompt('');
     onImageClose();
   };
@@ -646,7 +645,6 @@ export default function App() {
   };
 
   const handleTestKey = async () => {
-    setIsTestingKey(true);
     try {
       await fetchModels();
       toast({
@@ -662,8 +660,6 @@ export default function App() {
         status: "error",
         duration: 3000,
       });
-    } finally {
-      setIsTestingKey(false);
     }
   };
 
@@ -1313,9 +1309,9 @@ export default function App() {
         <Flex h={8} borderTop="1px solid" borderColor="whiteAlpha.100" bg="#16161e" align="center" justify="space-between" px={4} fontSize="10px" color="whiteAlpha.400">
           <HStack spacing={4}>
             <HStack spacing={2}>
-              <Box w={1.5} h={1.5} borderRadius="full" bg={isDirty ? "orange.400" : "green.400"} />
+              <Box w={1.5} h={1.5} borderRadius="full" bg={isSaving ? "blue.400" : (isDirty ? "orange.400" : "green.400")} />
               <Text color="whiteAlpha.600">
-                {isDirty ? "Unsaved changes" : "All changes saved"}
+                {isSaving ? "Saving..." : (isDirty ? "Unsaved changes" : "All changes saved")}
               </Text>
             </HStack>
             {lastAutoSaveTime && (
@@ -1365,8 +1361,9 @@ export default function App() {
               size="sm" 
               colorScheme="blue" 
               onClick={handleGenerateImage} 
-              isLoading={isGeneratingImage}
+              isLoading={isGeneratingImageStore}
               isDisabled={!imagePrompt.trim()}
+              loadingText="Generating..."
             >
               Generate & Add
             </Button>
@@ -1596,7 +1593,13 @@ export default function App() {
                           ))}
                         </Select>
                         <Tooltip label="Fetch/Refresh Models">
-                          <IconButton aria-label="Fetch Models" icon={<RefreshCw size={14} />} size="sm" onClick={() => handleTestKey()} isLoading={isTestingKey} />
+                          <IconButton 
+                            aria-label="Fetch Models" 
+                            icon={<RefreshCw size={14} />} 
+                            size="sm" 
+                            onClick={() => handleTestKey()} 
+                            isLoading={isFetchingModels} 
+                          />
                         </Tooltip>
                       </HStack>
                     </FormControl>

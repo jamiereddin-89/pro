@@ -63,6 +63,9 @@ interface AppState {
   lastAutoSaveTime: number | null;
   userInput: string;
   isLoading: boolean;
+  isSaving: boolean;
+  isFetchingModels: boolean;
+  isGeneratingImage: boolean;
   messages: ChatMessage[];
   model: ModelType | string;
   isThinking: boolean;
@@ -140,6 +143,9 @@ export const useStore = create<AppState>()(
       lastAutoSaveTime: null,
       userInput: '',
       isLoading: false,
+      isSaving: false,
+      isFetchingModels: false,
+      isGeneratingImage: false,
       messages: [],
       model: ModelType.FLASH,
       isThinking: false,
@@ -372,6 +378,7 @@ export const useStore = create<AppState>()(
       saveProject: async (name, isAutoSave = false) => {
         const { html, messages, savedProjects, currentProjectId, generationMode, versions } = get();
         
+        set({ isSaving: true });
         const id = isAutoSave 
           ? (currentProjectId ? `${currentProjectId}-autosave` : 'autosave-latest')
           : (currentProjectId || Math.random().toString(36).substring(7));
@@ -410,7 +417,8 @@ export const useStore = create<AppState>()(
           savedProjects: newSavedProjects, 
           currentProjectId: isAutoSave ? currentProjectId : id,
           lastSavedHtml: isAutoSave ? get().lastSavedHtml : html,
-          lastAutoSaveTime: isAutoSave ? Date.now() : get().lastAutoSaveTime
+          lastAutoSaveTime: isAutoSave ? Date.now() : get().lastAutoSaveTime,
+          isSaving: false
         });
       },
 
@@ -480,6 +488,7 @@ export const useStore = create<AppState>()(
         const provider = settings.providers.find(p => p.id === targetProviderId);
         const apiKey = provider?.apiKey || settings.apiKey || undefined;
 
+        set({ isFetchingModels: true });
         try {
           let models: any[] = [];
           
@@ -534,10 +543,12 @@ export const useStore = create<AppState>()(
                 p.id === targetProviderId ? { ...p, availableModels: models } : p
               )
             },
-            availableModels: targetProviderId === settings.activeProviderId ? models : state.availableModels
+            availableModels: targetProviderId === settings.activeProviderId ? models : state.availableModels,
+            isFetchingModels: false
           }));
         } catch (err: any) {
           console.error("Failed to fetch models:", err);
+          set({ isFetchingModels: false });
           let msg = "Failed to fetch models.";
           if (err.message?.includes('API_KEY_INVALID')) msg = "Invalid API Key for this provider.";
           set({ error: msg });
