@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { 
   Box, 
   Flex, 
@@ -102,7 +102,10 @@ import {
   SaveAll,
   FileCode,
   Info,
-  Copy as CopyIcon
+  Copy as CopyIcon,
+  PanelLeftClose,
+  PanelLeftOpen,
+  GripVertical
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import Editor, { OnMount } from '@monaco-editor/react';
@@ -178,6 +181,9 @@ export default function App() {
   const [showAddProvider, setShowAddProvider] = useState(false);
   const [selectedProvider, setSelectedProvider] = useState<AIProvider | null>(null);
   const [newProvider, setNewProvider] = useState({ name: '', apiKey: '', baseUrl: '' });
+  const [isSidebarMinimized, setIsSidebarMinimized] = useState(false);
+  const [sidebarWidth, setSidebarWidth] = useState(400);
+  const [isResizing, setIsResizing] = useState(false);
   const chatEndRef = useRef<HTMLDivElement>(null);
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const toast = useToast();
@@ -215,6 +221,35 @@ export default function App() {
       iframeRef.current.srcdoc = html;
     }
   };
+
+  const startResizing = useCallback((mouseDownEvent: React.MouseEvent) => {
+    setIsResizing(true);
+  }, []);
+
+  const stopResizing = useCallback(() => {
+    setIsResizing(false);
+  }, []);
+
+  const resize = useCallback(
+    (mouseMoveEvent: MouseEvent) => {
+      if (isResizing) {
+        const newWidth = mouseMoveEvent.clientX;
+        if (newWidth > 250 && newWidth < 800) {
+          setSidebarWidth(newWidth);
+        }
+      }
+    },
+    [isResizing]
+  );
+
+  useEffect(() => {
+    window.addEventListener("mousemove", resize);
+    window.addEventListener("mouseup", stopResizing);
+    return () => {
+      window.removeEventListener("mousemove", resize);
+      window.removeEventListener("mouseup", stopResizing);
+    };
+  }, [resize, stopResizing]);
 
   const handleGenerateImage = async () => {
     if (!imagePrompt.trim()) return;
@@ -665,17 +700,21 @@ export default function App() {
   const currentAvailableModels = activeProvider?.availableModels || [];
 
   return (
-    <Flex h="100vh" bg="#0a0a0c" color="slate.200" overflow="hidden">
+    <Flex h="100vh" bg="#0a0a0c" color="slate.200" overflow="hidden" position="relative">
       {/* Sidebar / Chat Panel */}
       <Box 
-        w="400px" 
+        w={isSidebarMinimized ? "0px" : `${sidebarWidth}px`}
+        minW={isSidebarMinimized ? "0px" : "250px"}
         display="flex" 
         flexDirection="column" 
-        borderRight="1px solid" 
+        borderRight={isSidebarMinimized ? "none" : "1px solid"}
         borderColor="whiteAlpha.100" 
         bg="#0d0d11"
+        position="relative"
+        transition={isResizing ? "none" : "width 0.3s ease-in-out"}
+        overflow={isSidebarMinimized ? "hidden" : "visible"}
       >
-        <Flex p={4} align="center" justify="space-between" borderBottom="1px solid" borderColor="whiteAlpha.100">
+        <Flex p={4} align="center" justify="space-between" borderBottom="1px solid" borderColor="whiteAlpha.100" minH="65px">
           <HStack spacing={3}>
             <Box 
               w={8} h={8} 
@@ -703,6 +742,17 @@ export default function App() {
                 </Box>
               </Tooltip>
             )}
+            <Tooltip label="Minimize Sidebar">
+              <IconButton
+                aria-label="Minimize"
+                icon={<PanelLeftClose size={16} />}
+                variant="ghost"
+                size="sm"
+                onClick={() => setIsSidebarMinimized(true)}
+                color="whiteAlpha.600"
+                _hover={{ bg: 'whiteAlpha.100', color: 'white' }}
+              />
+            </Tooltip>
             <Tooltip label="Generate Image (Imagen)">
               <IconButton
                 aria-label="Imagen"
@@ -960,6 +1010,37 @@ export default function App() {
           </Text>
         </Box>
       </Box>
+
+      {/* Resize Handle */}
+      {!isSidebarMinimized && (
+        <Box
+          w="4px"
+          cursor="col-resize"
+          bg={isResizing ? "blue.500" : "transparent"}
+          _hover={{ bg: "blue.500" }}
+          onMouseDown={startResizing}
+          zIndex={10}
+          transition="background 0.2s"
+        />
+      )}
+
+      {/* Expand Button (Floating) */}
+      {isSidebarMinimized && (
+        <Tooltip label="Expand Sidebar">
+          <IconButton
+            aria-label="Expand"
+            icon={<PanelLeftOpen size={20} />}
+            position="absolute"
+            top={4}
+            left={4}
+            zIndex={20}
+            colorScheme="blue"
+            size="sm"
+            onClick={() => setIsSidebarMinimized(false)}
+            boxShadow="0 4px 12px rgba(0,0,0,0.5)"
+          />
+        </Tooltip>
+      )}
 
       {/* Main Preview Panel */}
       <Flex flex={1} direction="column" bg="#050507">
