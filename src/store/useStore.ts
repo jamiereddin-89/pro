@@ -495,9 +495,9 @@ export const useStore = create<AppState>()(
           if (provider && provider.id !== 'google' && provider.baseUrl) {
             // Fetch from custom provider via proxy to avoid CORS
             const normalizedBaseUrl = provider.baseUrl.replace(/\/+$/, '');
-            const fetchUrl = `${normalizedBaseUrl}/models`;
+            let fetchUrl = `${normalizedBaseUrl}/models`;
             
-            const response = await fetch('/api/proxy', {
+            let response = await fetch('/api/proxy', {
               method: 'POST',
               headers: {
                 'Content-Type': 'application/json'
@@ -510,6 +510,27 @@ export const useStore = create<AppState>()(
                 }
               })
             });
+
+            // If 404, try /v1/models
+            if (response.status === 404 && !normalizedBaseUrl.endsWith('/v1')) {
+              const fallbackUrl = `${normalizedBaseUrl}/v1/models`;
+              const fallbackResponse = await fetch('/api/proxy', {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                  url: fallbackUrl,
+                  method: 'GET',
+                  headers: {
+                    'Authorization': `Bearer ${apiKey}`
+                  }
+                })
+              });
+              if (fallbackResponse.ok) {
+                response = fallbackResponse;
+              }
+            }
             
             if (!response.ok) {
               let errorMessage = `HTTP error! status: ${response.status}`;
@@ -533,7 +554,17 @@ export const useStore = create<AppState>()(
             }));
           } else {
             // Use Google Gemini listModels
-            models = await listModels(apiKey);
+            try {
+              models = await listModels(apiKey);
+            } catch (geminiErr) {
+              console.warn("Failed to list Gemini models, using defaults:", geminiErr);
+              // Fallback to default Gemini models if listing fails
+              models = [
+                { name: 'gemini-2.0-flash', displayName: 'Gemini 2.0 Flash' },
+                { name: 'gemini-2.0-pro-exp-02-05', displayName: 'Gemini 2.0 Pro' },
+                { name: 'gemini-2.0-flash-lite-preview-02-05', displayName: 'Gemini 2.0 Lite' }
+              ];
+            }
           }
           
           set((state) => ({

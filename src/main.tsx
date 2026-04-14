@@ -4,6 +4,28 @@ import { ChakraProvider, extendTheme } from '@chakra-ui/react';
 import App from './App.tsx';
 import './index.css';
 
+// Suppress ResizeObserver loop limit exceeded error
+if (typeof window !== 'undefined') {
+  const originalError = console.error;
+  console.error = (...args: any[]) => {
+    if (typeof args[0] === 'string' && args[0].includes('ResizeObserver loop completed with undelivered notifications')) {
+      return;
+    }
+    originalError.apply(console, args);
+  };
+
+  window.addEventListener('error', (e) => {
+    if (e.message === 'ResizeObserver loop completed with undelivered notifications' ||
+        e.message === 'ResizeObserver loop limit exceeded') {
+      const resizeObserverErrDiv = document.getElementById('webpack-dev-server-client-overlay-div');
+      if (resizeObserverErrDiv) {
+        resizeObserverErrDiv.style.display = 'none';
+      }
+      e.stopImmediatePropagation();
+    }
+  });
+}
+
 const theme = extendTheme({
   config: {
     initialColorMode: 'dark',
