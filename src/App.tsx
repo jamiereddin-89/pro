@@ -48,6 +48,12 @@ import {
   NumberInputStepper,
   NumberIncrementStepper,
   NumberDecrementStepper,
+  Accordion,
+  AccordionItem,
+  AccordionButton,
+  AccordionPanel,
+  AccordionIcon,
+  Grid,
   Tabs,
   TabList,
   TabPanels,
@@ -95,6 +101,7 @@ import {
   Cloud,
   SaveAll,
   FileCode,
+  Info,
   Copy as CopyIcon
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
@@ -103,7 +110,7 @@ import JSZip from 'jszip';
 import { saveAs } from 'file-saver';
 import ReactMarkdown from 'react-markdown';
 import { ModelType, ChatMessage } from './lib/gemini';
-import { useStore, Version, Project } from './store/useStore';
+import { useStore, Version, Project, AIProvider } from './store/useStore';
 import { auth, db } from './firebase';
 import { signInWithPopup, GoogleAuthProvider } from 'firebase/auth';
 import { useAuthState } from 'react-firebase-hooks/auth';
@@ -148,6 +155,8 @@ export default function App() {
     revertToVersion,
     setHtml,
     setSearchQuery,
+    providerSearchQuery,
+    setProviderSearchQuery,
     fetchModels,
     generateImageAction,
     syncProject,
@@ -167,6 +176,7 @@ export default function App() {
   const [imagePrompt, setImagePrompt] = useState('');
   const [isGeneratingImage, setIsGeneratingImage] = useState(false);
   const [showAddProvider, setShowAddProvider] = useState(false);
+  const [selectedProvider, setSelectedProvider] = useState<AIProvider | null>(null);
   const [newProvider, setNewProvider] = useState({ name: '', apiKey: '', baseUrl: '' });
   const chatEndRef = useRef<HTMLDivElement>(null);
   const iframeRef = useRef<HTMLIFrameElement>(null);
@@ -179,6 +189,7 @@ export default function App() {
   const { isOpen: isSettingsOpen, onOpen: onSettingsOpen, onClose: onSettingsClose } = useDisclosure();
   const { isOpen: isVersionsOpen, onOpen: onVersionsOpen, onClose: onVersionsClose } = useDisclosure();
   const { isOpen: isImageOpen, onOpen: onImageOpen, onClose: onImageClose } = useDisclosure();
+  const { isOpen: isProviderDetailOpen, onOpen: onProviderDetailOpen, onClose: onProviderDetailClose } = useDisclosure();
 
   // Auto-save effect
   useEffect(() => {
@@ -646,6 +657,13 @@ export default function App() {
     }
   };
 
+  const filteredProviders = settings.providers.filter(p => 
+    p.name.toLowerCase().includes(providerSearchQuery.toLowerCase())
+  );
+
+  const activeProvider = settings.providers.find(p => p.id === settings.activeProviderId);
+  const currentAvailableModels = activeProvider?.availableModels || [];
+
   return (
     <Flex h="100vh" bg="#0a0a0c" color="slate.200" overflow="hidden">
       {/* Sidebar / Chat Panel */}
@@ -718,25 +736,27 @@ export default function App() {
                 _hover={{ bg: 'whiteAlpha.100', color: 'white' }}
               />
             </Tooltip>
-            <Menu>
-              <MenuButton
-                as={IconButton}
-                aria-label="Projects"
-                icon={<FolderOpen size={16} />}
-                variant="ghost"
-                size="sm"
-                color="whiteAlpha.600"
-                _hover={{ bg: 'whiteAlpha.100', color: 'white' }}
-              />
-              <Portal>
-                <MenuList bg="#1a1a24" borderColor="whiteAlpha.200" zIndex={1000}>
-                  <MenuItem icon={<Save size={14} />} onClick={onSaveOpen} bg="transparent" _hover={{ bg: 'whiteAlpha.100' }}>Save Current</MenuItem>
-                  <MenuItem icon={<FolderOpen size={14} />} onClick={onLoadOpen} bg="transparent" _hover={{ bg: 'whiteAlpha.100' }}>Load Project</MenuItem>
-                  <Divider my={2} borderColor="whiteAlpha.100" />
-                  <MenuItem icon={<RotateCcw size={14} />} onClick={clearChat} color="red.400" bg="transparent" _hover={{ bg: 'whiteAlpha.100' }}>Clear All</MenuItem>
-                </MenuList>
-              </Portal>
-            </Menu>
+            <Tooltip label="Projects">
+              <Menu>
+                <MenuButton
+                  as={IconButton}
+                  aria-label="Projects"
+                  icon={<FolderOpen size={16} />}
+                  variant="ghost"
+                  size="sm"
+                  color="whiteAlpha.600"
+                  _hover={{ bg: 'whiteAlpha.100', color: 'white' }}
+                />
+                <Portal>
+                  <MenuList bg="#1a1a24" borderColor="whiteAlpha.200" zIndex={1000}>
+                    <MenuItem icon={<Save size={14} />} onClick={onSaveOpen} bg="transparent" _hover={{ bg: 'whiteAlpha.100' }}>Save Current</MenuItem>
+                    <MenuItem icon={<FolderOpen size={14} />} onClick={onLoadOpen} bg="transparent" _hover={{ bg: 'whiteAlpha.100' }}>Load Project</MenuItem>
+                    <Divider my={2} borderColor="whiteAlpha.100" />
+                    <MenuItem icon={<RotateCcw size={14} />} onClick={clearChat} color="red.400" bg="transparent" _hover={{ bg: 'whiteAlpha.100' }}>Clear All</MenuItem>
+                  </MenuList>
+                </Portal>
+              </Menu>
+            </Tooltip>
           </HStack>
         </Flex>
 
@@ -979,11 +999,19 @@ export default function App() {
 
             {activeTab === 'preview' && (
               <HStack spacing={1} borderLeft="1px solid" borderColor="whiteAlpha.100" pl={4}>
-                <IconButton aria-label="Reload" icon={<RefreshCw size={14} />} size="xs" variant="ghost" onClick={handleReloadPreview} />
+                <Tooltip label="Reload Preview">
+                  <IconButton aria-label="Reload" icon={<RefreshCw size={14} />} size="xs" variant="ghost" onClick={handleReloadPreview} />
+                </Tooltip>
                 <Divider orientation="vertical" h={3} />
-                <IconButton aria-label="Desktop" icon={<Monitor size={16} />} size="xs" variant={previewMode === 'desktop' ? 'solid' : 'ghost'} colorScheme={previewMode === 'desktop' ? 'blue' : 'gray'} onClick={() => setPreviewMode('desktop')} />
-                <IconButton aria-label="Tablet" icon={<Tablet size={16} />} size="xs" variant={previewMode === 'tablet' ? 'solid' : 'ghost'} colorScheme={previewMode === 'tablet' ? 'blue' : 'gray'} onClick={() => setPreviewMode('tablet')} />
-                <IconButton aria-label="Mobile" icon={<Smartphone size={16} />} size="xs" variant={previewMode === 'mobile' ? 'solid' : 'ghost'} colorScheme={previewMode === 'mobile' ? 'blue' : 'gray'} onClick={() => setPreviewMode('mobile')} />
+                <Tooltip label="Desktop View">
+                  <IconButton aria-label="Desktop" icon={<Monitor size={16} />} size="xs" variant={previewMode === 'desktop' ? 'solid' : 'ghost'} colorScheme={previewMode === 'desktop' ? 'blue' : 'gray'} onClick={() => setPreviewMode('desktop')} />
+                </Tooltip>
+                <Tooltip label="Tablet View">
+                  <IconButton aria-label="Tablet" icon={<Tablet size={16} />} size="xs" variant={previewMode === 'tablet' ? 'solid' : 'ghost'} colorScheme={previewMode === 'tablet' ? 'blue' : 'gray'} onClick={() => setPreviewMode('tablet')} />
+                </Tooltip>
+                <Tooltip label="Mobile View">
+                  <IconButton aria-label="Mobile" icon={<Smartphone size={16} />} size="xs" variant={previewMode === 'mobile' ? 'solid' : 'ghost'} colorScheme={previewMode === 'mobile' ? 'blue' : 'gray'} onClick={() => setPreviewMode('mobile')} />
+                </Tooltip>
               </HStack>
             )}
           </HStack>
@@ -1001,25 +1029,27 @@ export default function App() {
             >
               Refactor
             </Button>
-            <Menu>
-              <MenuButton
-                as={IconButton}
-                aria-label="Export"
-                icon={<Download size={16} />}
-                variant="outline"
-                size="sm"
-                borderColor="whiteAlpha.200"
-                color="whiteAlpha.600"
-                _hover={{ bg: 'whiteAlpha.100', color: 'white' }}
-                isDisabled={!html}
-              />
-              <Portal>
-                <MenuList bg="#1a1a24" borderColor="whiteAlpha.200" zIndex={1000}>
-                  <MenuItem icon={<Globe size={14} />} onClick={copyToClipboard} bg="transparent" _hover={{ bg: 'whiteAlpha.100' }}>Copy HTML</MenuItem>
-                  <MenuItem icon={<FileJson size={14} />} onClick={handleExportZip} bg="transparent" _hover={{ bg: 'whiteAlpha.100' }}>Export ZIP</MenuItem>
-                </MenuList>
-              </Portal>
-            </Menu>
+            <Tooltip label="Export Options">
+              <Menu>
+                <MenuButton
+                  as={IconButton}
+                  aria-label="Export"
+                  icon={<Download size={16} />}
+                  variant="outline"
+                  size="sm"
+                  borderColor="whiteAlpha.200"
+                  color="whiteAlpha.600"
+                  _hover={{ bg: 'whiteAlpha.100', color: 'white' }}
+                  isDisabled={!html}
+                />
+                <Portal>
+                  <MenuList bg="#1a1a24" borderColor="whiteAlpha.200" zIndex={1000}>
+                    <MenuItem icon={<Globe size={14} />} onClick={copyToClipboard} bg="transparent" _hover={{ bg: 'whiteAlpha.100' }}>Copy HTML</MenuItem>
+                    <MenuItem icon={<FileJson size={14} />} onClick={handleExportZip} bg="transparent" _hover={{ bg: 'whiteAlpha.100' }}>Export ZIP</MenuItem>
+                  </MenuList>
+                </Portal>
+              </Menu>
+            </Tooltip>
           </HStack>
         </Flex>
 
@@ -1296,181 +1326,279 @@ export default function App() {
       </Modal>
 
       {/* Settings Modal */}
-      <Modal isOpen={isSettingsOpen} onClose={onSettingsClose}>
+      <Modal isOpen={isSettingsOpen} onClose={onSettingsClose} size="xl">
         <ModalOverlay backdropFilter="blur(4px)" />
         <ModalContent bg="#1a1a24" color="white" borderColor="whiteAlpha.200" border="1px solid">
           <ModalHeader fontSize="md">Application Settings</ModalHeader>
           <ModalCloseButton />
-          <ModalBody>
-            <VStack spacing={6} align="stretch">
-              {/* Providers Section */}
-              <Box p={4} bg="whiteAlpha.50" borderRadius="xl" border="1px solid" borderColor="whiteAlpha.100">
-                <VStack align="stretch" spacing={4}>
-                  <HStack justify="space-between">
-                    <HStack>
-                      <Cloud size={16} />
-                      <Text fontSize="sm" fontWeight="bold">AI Providers</Text>
-                    </HStack>
-                    <Button 
-                      size="xs" 
-                      leftIcon={showAddProvider ? <Minus size={12} /> : <Plus size={12} />} 
-                      onClick={() => setShowAddProvider(!showAddProvider)}
-                    >
-                      {showAddProvider ? 'Cancel' : 'Add Provider'}
-                    </Button>
+          <ModalBody pb={6}>
+            <Accordion allowMultiple defaultIndex={[0, 1, 2]}>
+              {/* AI Providers Section */}
+              <AccordionItem border="none" mb={4}>
+                <AccordionButton px={0} _hover={{ bg: 'transparent' }}>
+                  <HStack flex="1" textAlign="left">
+                    <Cloud size={16} />
+                    <Text fontSize="sm" fontWeight="bold">AI Providers</Text>
                   </HStack>
-
-                  <AnimatePresence>
-                    {showAddProvider && (
-                      <motion.div
-                        initial={{ height: 0, opacity: 0 }}
-                        animate={{ height: 'auto', opacity: 1 }}
-                        exit={{ height: 0, opacity: 0 }}
-                        style={{ overflow: 'hidden' }}
+                  <AccordionIcon />
+                </AccordionButton>
+                <AccordionPanel px={0} pt={2}>
+                  <VStack align="stretch" spacing={4}>
+                    <HStack>
+                      <InputGroup size="xs">
+                        <InputLeftElement pointerEvents="none">
+                          <Search size={12} color="gray" />
+                        </InputLeftElement>
+                        <Input 
+                          placeholder="Search providers..." 
+                          value={providerSearchQuery}
+                          onChange={(e) => setProviderSearchQuery(e.target.value)}
+                          bg="whiteAlpha.50"
+                          borderColor="whiteAlpha.100"
+                        />
+                      </InputGroup>
+                      <Button 
+                        size="xs" 
+                        leftIcon={showAddProvider ? <Minus size={12} /> : <Plus size={12} />} 
+                        onClick={() => setShowAddProvider(!showAddProvider)}
+                        colorScheme={showAddProvider ? 'gray' : 'blue'}
                       >
-                        <VStack spacing={3} p={3} bg="blackAlpha.300" borderRadius="lg" mb={2}>
-                          <Input 
-                            size="sm" 
-                            placeholder="Provider Name (e.g. Anthropic)" 
-                            value={newProvider.name}
-                            onChange={(e) => setNewProvider({ ...newProvider, name: e.target.value })}
-                          />
-                          <Input 
-                            size="sm" 
-                            placeholder="API Key" 
-                            type="password"
-                            value={newProvider.apiKey}
-                            onChange={(e) => setNewProvider({ ...newProvider, apiKey: e.target.value })}
-                          />
-                          <Input 
-                            size="sm" 
-                            placeholder="Base URL (Optional)" 
-                            value={newProvider.baseUrl}
-                            onChange={(e) => setNewProvider({ ...newProvider, baseUrl: e.target.value })}
-                          />
-                          <Button size="sm" w="full" colorScheme="blue" onClick={handleAddProvider}>Add</Button>
-                        </VStack>
-                      </motion.div>
-                    )}
-                  </AnimatePresence>
+                        {showAddProvider ? 'Cancel' : 'Add'}
+                      </Button>
+                    </HStack>
 
-                  <VStack align="stretch" spacing={2}>
-                    {settings.providers?.map(provider => (
-                      <HStack key={provider.id} p={2} bg="whiteAlpha.50" borderRadius="md" justify="space-between">
-                        <VStack align="start" spacing={0}>
-                          <Text fontSize="xs" fontWeight="bold">{provider.name}</Text>
-                          <Text fontSize="10px" color="whiteAlpha.400">{provider.apiKey ? '••••••••' : 'No Key'}</Text>
-                        </VStack>
-                        <HStack>
-                          <Button 
-                            size="xs" 
-                            variant={settings.activeProviderId === provider.id ? 'solid' : 'ghost'}
-                            colorScheme={settings.activeProviderId === provider.id ? 'blue' : 'gray'}
-                            onClick={() => updateSettings({ activeProviderId: provider.id })}
-                          >
-                            {settings.activeProviderId === provider.id ? 'Active' : 'Select'}
-                          </Button>
-                          {provider.id !== 'google' && (
-                            <IconButton 
-                              aria-label="Remove" 
-                              icon={<Trash2 size={12} />} 
-                              size="xs" 
-                              variant="ghost" 
-                              colorScheme="red"
-                              onClick={() => removeProvider(provider.id)}
+                    <AnimatePresence>
+                      {showAddProvider && (
+                        <motion.div
+                          initial={{ height: 0, opacity: 0 }}
+                          animate={{ height: 'auto', opacity: 1 }}
+                          exit={{ height: 0, opacity: 0 }}
+                          style={{ overflow: 'hidden' }}
+                        >
+                          <VStack spacing={3} p={3} bg="blackAlpha.300" borderRadius="lg" mb={2}>
+                            <Input 
+                              size="sm" 
+                              placeholder="Provider Name (e.g. Anthropic)" 
+                              value={newProvider.name}
+                              onChange={(e) => setNewProvider({ ...newProvider, name: e.target.value })}
                             />
-                          )}
+                            <Input 
+                              size="sm" 
+                              placeholder="API Key" 
+                              type="password"
+                              value={newProvider.apiKey}
+                              onChange={(e) => setNewProvider({ ...newProvider, apiKey: e.target.value })}
+                            />
+                            <Input 
+                              size="sm" 
+                              placeholder="Base URL (e.g. https://api.anthropic.com/v1)" 
+                              value={newProvider.baseUrl}
+                              onChange={(e) => setNewProvider({ ...newProvider, baseUrl: e.target.value })}
+                            />
+                            <Button size="sm" w="full" colorScheme="blue" onClick={handleAddProvider}>Add Provider</Button>
+                          </VStack>
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
+
+                    <VStack align="stretch" spacing={2} maxH="200px" overflowY="auto" className="no-scrollbar">
+                      {filteredProviders?.map(provider => (
+                        <HStack key={provider.id} p={2} bg="whiteAlpha.50" borderRadius="md" justify="space-between" _hover={{ bg: 'whiteAlpha.100' }}>
+                          <HStack spacing={3} flex={1} cursor="pointer" onClick={() => { setSelectedProvider(provider); onProviderDetailOpen(); }}>
+                            <VStack align="start" spacing={0}>
+                              <Text fontSize="xs" fontWeight="bold">{provider.name}</Text>
+                              <Text fontSize="10px" color="whiteAlpha.400">{provider.id === 'google' ? 'Default' : (provider.baseUrl || 'OpenAI Compatible')}</Text>
+                            </VStack>
+                            <Info size={12} color="gray" />
+                          </HStack>
+                          <HStack>
+                            <Button 
+                              size="xs" 
+                              variant={settings.activeProviderId === provider.id ? 'solid' : 'ghost'}
+                              colorScheme={settings.activeProviderId === provider.id ? 'blue' : 'gray'}
+                              onClick={() => updateSettings({ activeProviderId: provider.id })}
+                            >
+                              {settings.activeProviderId === provider.id ? 'Active' : 'Select'}
+                            </Button>
+                            {provider.id !== 'google' && (
+                              <IconButton 
+                                aria-label="Remove" 
+                                icon={<Trash2 size={12} />} 
+                                size="xs" 
+                                variant="ghost" 
+                                colorScheme="red"
+                                onClick={() => removeProvider(provider.id)}
+                              />
+                            )}
+                          </HStack>
                         </HStack>
-                      </HStack>
-                    ))}
+                      ))}
+                    </VStack>
                   </VStack>
-                </VStack>
-              </Box>
+                </AccordionPanel>
+              </AccordionItem>
 
-              <FormControl>
-                <FormLabel fontSize="sm">AI Model</FormLabel>
-                <HStack>
-                  <Select 
-                    size="sm" 
-                    bg="whiteAlpha.50" 
-                    borderColor="whiteAlpha.200"
-                    value={model}
-                    onChange={(e) => setModel(e.target.value)}
-                  >
-                    <option value={ModelType.FLASH} style={{ background: '#1a1a24' }}>Gemini 2.0 Flash (Fast)</option>
-                    <option value={ModelType.PRO} style={{ background: '#1a1a24' }}>Gemini 2.0 Pro (Thinking)</option>
-                    <option value={ModelType.LITE} style={{ background: '#1a1a24' }}>Gemini 2.0 Lite</option>
-                    {availableModels?.map(m => (
-                      <option key={m.name} value={m.name} style={{ background: '#1a1a24' }}>{m.displayName || m.name}</option>
-                    ))}
-                  </Select>
-                  <IconButton aria-label="Fetch Models" icon={<RefreshCw size={14} />} size="sm" onClick={() => handleTestKey()} isLoading={isTestingKey} />
-                </HStack>
-              </FormControl>
+              {/* AI Model Section */}
+              <AccordionItem border="none" mb={4}>
+                <AccordionButton px={0} _hover={{ bg: 'transparent' }}>
+                  <HStack flex="1" textAlign="left">
+                    <BrainCircuit size={16} />
+                    <Text fontSize="sm" fontWeight="bold">AI Model Configuration</Text>
+                  </HStack>
+                  <AccordionIcon />
+                </AccordionButton>
+                <AccordionPanel px={0} pt={2}>
+                  <VStack align="stretch" spacing={4}>
+                    <FormControl>
+                      <FormLabel fontSize="xs" color="whiteAlpha.600">Active Model</FormLabel>
+                      <HStack>
+                        <Select 
+                          size="sm" 
+                          bg="whiteAlpha.50" 
+                          borderColor="whiteAlpha.200"
+                          value={model}
+                          onChange={(e) => setModel(e.target.value)}
+                        >
+                          {settings.activeProviderId === 'google' && (
+                            <>
+                              <option value={ModelType.FLASH} style={{ background: '#1a1a24' }}>Gemini 2.0 Flash (Fast)</option>
+                              <option value={ModelType.PRO} style={{ background: '#1a1a24' }}>Gemini 2.0 Pro (Thinking)</option>
+                              <option value={ModelType.LITE} style={{ background: '#1a1a24' }}>Gemini 2.0 Lite</option>
+                            </>
+                          )}
+                          {currentAvailableModels?.map(m => (
+                            <option key={m.name} value={m.name} style={{ background: '#1a1a24' }}>{m.displayName || m.name}</option>
+                          ))}
+                        </Select>
+                        <Tooltip label="Fetch/Refresh Models">
+                          <IconButton aria-label="Fetch Models" icon={<RefreshCw size={14} />} size="sm" onClick={() => handleTestKey()} isLoading={isTestingKey} />
+                        </Tooltip>
+                      </HStack>
+                    </FormControl>
 
-              <Divider borderColor="whiteAlpha.100" />
+                    <FormControl display="flex" alignItems="center" justifyContent="space-between">
+                      <FormLabel mb="0" fontSize="xs" color="whiteAlpha.600">Enable Thinking (Gemini Pro only)</FormLabel>
+                      <Switch size="sm" isChecked={isThinking} onChange={(e) => setIsThinking(e.target.checked)} isDisabled={model !== ModelType.PRO} />
+                    </FormControl>
+                  </VStack>
+                </AccordionPanel>
+              </AccordionItem>
 
-              <FormControl display="flex" alignItems="center" justifyContent="space-between">
-                <FormLabel mb="0" fontSize="sm">Editor Theme</FormLabel>
-                <Select 
-                  size="sm" 
-                  w="150px"
-                  bg="whiteAlpha.50" 
-                  borderColor="whiteAlpha.200"
-                  value={settings.theme}
-                  onChange={(e) => updateSettings({ theme: e.target.value as any })}
-                >
-                  <option value="vs-dark" style={{ background: '#1a1a24' }}>Dark</option>
-                  <option value="light" style={{ background: '#1a1a24' }}>Light</option>
-                  <option value="hc-black" style={{ background: '#1a1a24' }}>High Contrast</option>
-                </Select>
-              </FormControl>
-              
-              <FormControl display="flex" alignItems="center" justifyContent="space-between">
-                <FormLabel mb="0" fontSize="sm">Font Size</FormLabel>
-                <NumberInput 
-                  size="sm" 
-                  maxW={20} 
-                  value={settings.fontSize} 
-                  onChange={(_, val) => updateSettings({ fontSize: val })}
-                  min={10}
-                  max={24}
-                >
-                  <NumberInputField bg="whiteAlpha.50" borderColor="whiteAlpha.200" />
-                  <NumberInputStepper>
-                    <NumberIncrementStepper />
-                    <NumberDecrementStepper />
-                  </NumberInputStepper>
-                </NumberInput>
-              </FormControl>
+              {/* Editor Preferences Section */}
+              <AccordionItem border="none">
+                <AccordionButton px={0} _hover={{ bg: 'transparent' }}>
+                  <HStack flex="1" textAlign="left">
+                    <Settings size={16} />
+                    <Text fontSize="sm" fontWeight="bold">Editor Preferences</Text>
+                  </HStack>
+                  <AccordionIcon />
+                </AccordionButton>
+                <AccordionPanel px={0} pt={2}>
+                  <Grid templateColumns="repeat(2, 1fr)" gap={4}>
+                    <FormControl>
+                      <FormLabel fontSize="xs" color="whiteAlpha.600">Font Size</FormLabel>
+                      <NumberInput 
+                        size="sm" 
+                        value={settings.fontSize} 
+                        min={8} max={24}
+                        onChange={(_, val) => updateSettings({ fontSize: val })}
+                      >
+                        <NumberInputField bg="whiteAlpha.50" borderColor="whiteAlpha.200" />
+                        <NumberInputStepper>
+                          <NumberIncrementStepper />
+                          <NumberDecrementStepper />
+                        </NumberInputStepper>
+                      </NumberInput>
+                    </FormControl>
 
-              <FormControl display="flex" alignItems="center" justifyContent="space-between">
-                <FormLabel mb="0" fontSize="sm">Live Preview (Auto-update)</FormLabel>
-                <Switch 
-                  isChecked={settings.autoPreview} 
-                  onChange={(e) => updateSettings({ autoPreview: e.target.checked })} 
-                />
-              </FormControl>
+                    <FormControl>
+                      <FormLabel fontSize="xs" color="whiteAlpha.600">Theme</FormLabel>
+                      <Select 
+                        size="sm" 
+                        bg="whiteAlpha.50" 
+                        borderColor="whiteAlpha.200"
+                        value={settings.theme}
+                        onChange={(e) => updateSettings({ theme: e.target.value as any })}
+                      >
+                        <option value="vs-dark" style={{ background: '#1a1a24' }}>Dark</option>
+                        <option value="gemini-dark" style={{ background: '#1a1a24' }}>Gemini Pro</option>
+                        <option value="light" style={{ background: '#1a1a24' }}>Light</option>
+                        <option value="hc-black" style={{ background: '#1a1a24' }}>High Contrast</option>
+                      </Select>
+                    </FormControl>
 
-              <FormControl display="flex" alignItems="center" justifyContent="space-between">
-                <FormLabel mb="0" fontSize="sm">Word Wrap</FormLabel>
-                <Switch 
-                  isChecked={settings.wordWrap === 'on'} 
-                  onChange={(e) => updateSettings({ wordWrap: e.target.checked ? 'on' : 'off' })} 
-                />
-              </FormControl>
+                    <FormControl display="flex" alignItems="center" justifyContent="space-between" gridColumn="span 2">
+                      <FormLabel mb="0" fontSize="xs" color="whiteAlpha.600">Auto Preview</FormLabel>
+                      <Switch size="sm" isChecked={settings.autoPreview} onChange={(e) => updateSettings({ autoPreview: e.target.checked })} />
+                    </FormControl>
 
-              <FormControl display="flex" alignItems="center" justifyContent="space-between">
-                <FormLabel mb="0" fontSize="sm">Show Minimap</FormLabel>
-                <Switch 
-                  isChecked={settings.minimap} 
-                  onChange={(e) => updateSettings({ minimap: e.target.checked })} 
-                />
-              </FormControl>
-            </VStack>
+                    <FormControl display="flex" alignItems="center" justifyContent="space-between" gridColumn="span 2">
+                      <FormLabel mb="0" fontSize="xs" color="whiteAlpha.600">Word Wrap</FormLabel>
+                      <Switch size="sm" isChecked={settings.wordWrap === 'on'} onChange={(e) => updateSettings({ wordWrap: e.target.checked ? 'on' : 'off' })} />
+                    </FormControl>
+
+                    <FormControl display="flex" alignItems="center" justifyContent="space-between" gridColumn="span 2">
+                      <FormLabel mb="0" fontSize="xs" color="whiteAlpha.600">Show Minimap</FormLabel>
+                      <Switch size="sm" isChecked={settings.minimap} onChange={(e) => updateSettings({ minimap: e.target.checked })} />
+                    </FormControl>
+                  </Grid>
+                </AccordionPanel>
+              </AccordionItem>
+            </Accordion>
           </ModalBody>
           <ModalFooter>
-            <Button size="sm" colorScheme="blue" onClick={onSettingsClose}>Save & Close</Button>
+            <Button size="sm" variant="ghost" onClick={onSettingsClose}>Close</Button>
+          </ModalFooter>
+        </ModalContent>
+      </Modal>
+
+      {/* Provider Detail Modal */}
+      <Modal isOpen={isProviderDetailOpen} onClose={onProviderDetailClose}>
+        <ModalOverlay backdropFilter="blur(4px)" />
+        <ModalContent bg="#1a1a24" color="white" borderColor="whiteAlpha.200" border="1px solid">
+          <ModalHeader fontSize="md">Provider Details</ModalHeader>
+          <ModalCloseButton />
+          <ModalBody pb={6}>
+            {selectedProvider && (
+              <VStack align="stretch" spacing={4}>
+                <Box p={4} bg="whiteAlpha.50" borderRadius="xl">
+                  <VStack align="start" spacing={1}>
+                    <Text fontSize="xs" color="whiteAlpha.500">Name</Text>
+                    <Text fontWeight="bold">{selectedProvider.name}</Text>
+                  </VStack>
+                  <Divider my={3} borderColor="whiteAlpha.100" />
+                  <VStack align="start" spacing={1}>
+                    <Text fontSize="xs" color="whiteAlpha.500">Base URL</Text>
+                    <Text fontSize="sm" fontFamily="mono">{selectedProvider.baseUrl || 'https://generativelanguage.googleapis.com'}</Text>
+                  </VStack>
+                  <Divider my={3} borderColor="whiteAlpha.100" />
+                  <VStack align="start" spacing={1}>
+                    <Text fontSize="xs" color="whiteAlpha.500">API Key</Text>
+                    <Text fontSize="sm">{selectedProvider.apiKey ? '••••••••••••••••' : 'Not configured'}</Text>
+                  </VStack>
+                </Box>
+
+                <VStack align="start" spacing={2}>
+                  <Text fontSize="xs" fontWeight="bold" color="whiteAlpha.600">Available Models ({selectedProvider.availableModels?.length || 0})</Text>
+                  <Box w="full" maxH="200px" overflowY="auto" bg="blackAlpha.300" borderRadius="lg" p={2} className="no-scrollbar">
+                    {selectedProvider.availableModels?.length > 0 ? (
+                      <VStack align="stretch" spacing={1}>
+                        {selectedProvider.availableModels.map(m => (
+                          <Text key={m.name} fontSize="xs" p={1} _hover={{ bg: 'whiteAlpha.100' }} borderRadius="sm">
+                            {m.displayName || m.name}
+                          </Text>
+                        ))}
+                      </VStack>
+                    ) : (
+                      <Text fontSize="xs" color="whiteAlpha.400" textAlign="center" py={4}>No models fetched yet.</Text>
+                    )}
+                  </Box>
+                </VStack>
+              </VStack>
+            )}
+          </ModalBody>
+          <ModalFooter>
+            <Button size="sm" colorScheme="blue" onClick={() => { fetchModels(selectedProvider?.id); onProviderDetailClose(); }}>Fetch Models</Button>
           </ModalFooter>
         </ModalContent>
       </Modal>

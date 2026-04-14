@@ -1,4 +1,5 @@
 import { GoogleGenAI, ThinkingLevel } from "@google/genai";
+import { MODERN_BEST_PRACTICES } from "./constants";
 
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || "" });
 
@@ -12,19 +13,6 @@ export interface ChatMessage {
   role: "user" | "model";
   content: string;
 }
-
-const MODERN_BEST_PRACTICES = `
-MODERN BEST PRACTICES:
-1. Use semantic HTML5 elements (header, main, section, footer, nav, article).
-2. Use modern CSS (Flexbox, Grid) for layouts.
-3. Prefer Tailwind CSS classes (via CDN) for styling to ensure maintainability.
-4. Keep CSS and JS modular and well-commented.
-5. Ensure accessibility (ARIA labels, proper contrast, logical heading hierarchy).
-6. Use responsive design patterns (mobile-first).
-7. Avoid inline styles where possible; use classes.
-8. Use modern JS features (ES6+, async/await, arrow functions).
-10. For complex UI components (dropdowns, dialogs, tabs), suggest using unstyled, accessible libraries like Radix UI or Headless UI, styled with Tailwind CSS.
-`;
 
 export async function generateImage(description: string): Promise<string> {
   // Simulated Imagen integration using a high-quality AI image service

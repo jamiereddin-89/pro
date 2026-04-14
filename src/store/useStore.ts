@@ -13,6 +13,7 @@ import {
   updateSiteStream,
   generateComponentStream
 } from '../lib/gemini';
+import { MODERN_BEST_PRACTICES } from '../lib/constants';
 import { generateOpenAIStream } from '../lib/openai';
 import { db, auth } from '../firebase';
 
@@ -84,6 +85,8 @@ interface AppState {
   // Settings
   settings: AppSettings;
   availableModels: any[];
+  providerSearchQuery: string;
+  setProviderSearchQuery: (query: string) => void;
 
   // Actions
   setHtml: (html: string) => void;
@@ -151,6 +154,8 @@ export const useStore = create<AppState>()(
       generationMode: 'website',
       versions: [],
       searchQuery: '',
+      providerSearchQuery: '',
+      setProviderSearchQuery: (providerSearchQuery) => set({ providerSearchQuery }),
       availableModels: [],
       settings: {
         theme: 'vs-dark',
@@ -266,10 +271,16 @@ export const useStore = create<AppState>()(
           if (activeProvider && activeProvider.id !== 'google') {
             // Use OpenAI compatible provider
             const systemInstruction = generationMode === 'component' 
-              ? "You are an expert front-end component developer. Generate a specific UI component based on the description. Output ONLY the raw HTML/CSS/JS. No markdown code fences."
+              ? `You are an expert front-end component developer. Generate a specific UI component based on the description. Output ONLY the raw HTML/CSS/JS. No markdown code fences.
+              
+              ${MODERN_BEST_PRACTICES}`
               : (html 
-                ? "You are an expert front-end refactoring assistant. Return the ENTIRE updated HTML document. No markdown code fences."
-                : "You are an expert front-end web developer. Return a single complete, valid HTML5 document. No markdown code fences.");
+                ? `You are an expert front-end refactoring assistant. Return the ENTIRE updated HTML document. No markdown code fences.
+                
+                ${MODERN_BEST_PRACTICES}`
+                : `You are an expert front-end web developer. Return a single complete, valid HTML5 document. No markdown code fences.
+                
+                ${MODERN_BEST_PRACTICES}`);
 
             finalResult = await generateOpenAIStream(
               prompt, 
@@ -470,7 +481,43 @@ export const useStore = create<AppState>()(
         const apiKey = provider?.apiKey || settings.apiKey || undefined;
 
         try {
-          const models = await listModels(apiKey);
+          let models: any[] = [];
+          
+          if (provider && provider.id !== 'google' && provider.baseUrl) {
+            // Fetch from custom provider via proxy to avoid CORS
+            const fetchUrl = provider.baseUrl.endsWith('/') 
+              ? `${provider.baseUrl}models` 
+              : `${provider.baseUrl}/models`;
+            
+            const response = await fetch('/api/proxy', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json'
+              },
+              body: JSON.stringify({
+                url: fetchUrl,
+                method: 'GET',
+                headers: {
+                  'Authorization': `Bearer ${apiKey}`
+                }
+              })
+            });
+            
+            if (!response.ok) {
+              const errorData = await response.json();
+              throw new Error(errorData.error || `HTTP error! status: ${response.status}`);
+            }
+            const data = await response.json();
+            
+            // OpenAI format usually has data array
+            models = (data.data || data).map((m: any) => ({
+              name: m.id || m.name,
+              displayName: m.id || m.name
+            }));
+          } else {
+            // Use Google Gemini listModels
+            models = await listModels(apiKey);
+          }
           
           set((state) => ({
             settings: {
