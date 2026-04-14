@@ -11,5 +11,6 @@ MODERN BEST PRACTICES:
 9. Interactivity: Add clear hover and focus states (e.g., hover:scale-[1.02], focus:ring-2) to improve visual feedback.
 10. SEO: ALWAYS include essential meta tags (charset, viewport, description, keywords, robots) and Open Graph tags.
 11. Schema Markup: Include JSON-LD schema markup (e.g., WebSite, Organization, LocalBusiness) to improve search engine understanding.
-12. Clean Code: Ensure the generated HTML is properly structured, indented, and follows a logical hierarchy.
+12. Clean Code: Ensure the generated HTML is properly structured, indented (2 spaces), and follows a logical semantic hierarchy for maximum readability and maintainability.
+13. JavaScript: Use modern, clean, and well-commented JavaScript. Avoid spaghetti code and ensure logical flow.
 `;

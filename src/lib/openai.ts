@@ -7,7 +7,8 @@ export async function generateOpenAIStream(
   baseUrl?: string,
   systemInstruction?: string
 ) {
-  const targetUrl = `${baseUrl || 'https://api.openai.com/v1'}/chat/completions`;
+  const normalizedBaseUrl = (baseUrl || 'https://api.openai.com/v1').replace(/\/+$/, '');
+  const targetUrl = `${normalizedBaseUrl}/chat/completions`;
   
   const response = await fetch('/api/proxy', {
     method: 'POST',
@@ -32,8 +33,19 @@ export async function generateOpenAIStream(
   });
 
   if (!response.ok) {
-    const errorData = await response.json();
-    throw new Error(errorData.error || `HTTP error! status: ${response.status}`);
+    let errorMessage = `HTTP error! status: ${response.status}`;
+    try {
+      const errorData = await response.json();
+      errorMessage = errorData.error || errorMessage;
+    } catch (e) {
+      try {
+        const text = await response.text();
+        if (text) errorMessage = text;
+      } catch (e2) {
+        // Fallback to default message
+      }
+    }
+    throw new Error(errorMessage);
   }
 
   const reader = response.body?.getReader();

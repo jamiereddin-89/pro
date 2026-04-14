@@ -485,9 +485,8 @@ export const useStore = create<AppState>()(
           
           if (provider && provider.id !== 'google' && provider.baseUrl) {
             // Fetch from custom provider via proxy to avoid CORS
-            const fetchUrl = provider.baseUrl.endsWith('/') 
-              ? `${provider.baseUrl}models` 
-              : `${provider.baseUrl}/models`;
+            const normalizedBaseUrl = provider.baseUrl.replace(/\/+$/, '');
+            const fetchUrl = `${normalizedBaseUrl}/models`;
             
             const response = await fetch('/api/proxy', {
               method: 'POST',
@@ -504,8 +503,17 @@ export const useStore = create<AppState>()(
             });
             
             if (!response.ok) {
-              const errorData = await response.json();
-              throw new Error(errorData.error || `HTTP error! status: ${response.status}`);
+              let errorMessage = `HTTP error! status: ${response.status}`;
+              try {
+                const errorData = await response.json();
+                errorMessage = errorData.error || errorMessage;
+              } catch (e) {
+                try {
+                  const text = await response.text();
+                  if (text) errorMessage = text;
+                } catch (e2) {}
+              }
+              throw new Error(errorMessage);
             }
             const data = await response.json();
             

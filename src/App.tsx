@@ -734,7 +734,14 @@ export default function App() {
           </HStack>
           <HStack spacing={1}>
             {!user ? (
-              <Button size="xs" colorScheme="blue" onClick={handleLogin}>Login</Button>
+              <Button 
+                size="xs" 
+                colorScheme="blue" 
+                onClick={handleLogin}
+                aria-label="Login with Google"
+              >
+                Login
+              </Button>
             ) : (
               <Tooltip label={user.displayName || 'User'}>
                 <Box w={6} h={6} borderRadius="full" overflow="hidden">
@@ -862,10 +869,42 @@ export default function App() {
           {generationMode === 'component' && (
             <HStack w="full" px={4} py={2} spacing={2} overflowX="auto" className="no-scrollbar" bg="whiteAlpha.50">
               <Text fontSize="9px" fontWeight="bold" color="whiteAlpha.400" textTransform="uppercase">Quick:</Text>
-              <Button size="xs" variant="ghost" fontSize="9px" onClick={() => executeAiAction("Generate a modern, responsive card component with an image, title, and description.")}>Card</Button>
-              <Button size="xs" variant="ghost" fontSize="9px" onClick={() => executeAiAction("Generate a stylish contact form with validation.")}>Form</Button>
-              <Button size="xs" variant="ghost" fontSize="9px" onClick={() => executeAiAction("Generate a set of modern, accessible buttons with different variants.")}>Buttons</Button>
-              <Button size="xs" variant="ghost" fontSize="9px" onClick={() => executeAiAction("Generate a responsive navigation bar with a logo and links.")}>Navbar</Button>
+              <Button 
+                size="xs" 
+                variant="ghost" 
+                fontSize="9px" 
+                onClick={() => executeAiAction("Generate a modern, responsive card component with an image, title, and description.")}
+                aria-label="Generate Card Component"
+              >
+                Card
+              </Button>
+              <Button 
+                size="xs" 
+                variant="ghost" 
+                fontSize="9px" 
+                onClick={() => executeAiAction("Generate a stylish contact form with validation.")}
+                aria-label="Generate Form Component"
+              >
+                Form
+              </Button>
+              <Button 
+                size="xs" 
+                variant="ghost" 
+                fontSize="9px" 
+                onClick={() => executeAiAction("Generate a set of modern, accessible buttons with different variants.")}
+                aria-label="Generate Buttons Component"
+              >
+                Buttons
+              </Button>
+              <Button 
+                size="xs" 
+                variant="ghost" 
+                fontSize="9px" 
+                onClick={() => executeAiAction("Generate a responsive navigation bar with a logo and links.")}
+                aria-label="Generate Navbar Component"
+              >
+                Navbar
+              </Button>
             </HStack>
           )}
         </VStack>
@@ -953,6 +992,7 @@ export default function App() {
                   leftIcon={<RefreshCw size={12} />}
                   onClick={retryLastAction}
                   ml={2}
+                  aria-label="Retry last generation"
                 >
                   Retry
                 </Button>
@@ -962,6 +1002,7 @@ export default function App() {
                   right="2px" 
                   top="2px" 
                   onClick={() => setError(null)} 
+                  aria-label="Close error message"
                 />
               </Alert>
             </motion.div>
@@ -1054,6 +1095,7 @@ export default function App() {
                 onClick={() => setActiveTab('preview')}
                 leftIcon={<Eye size={14} />}
                 fontSize="xs"
+                aria-label="Switch to Preview tab"
               >
                 Preview
               </Button>
@@ -1064,6 +1106,7 @@ export default function App() {
                 onClick={() => setActiveTab('code')}
                 leftIcon={<Code size={14} />}
                 fontSize="xs"
+                aria-label="Switch to Code tab"
               >
                 Code
               </Button>
@@ -1107,6 +1150,7 @@ export default function App() {
               borderColor="whiteAlpha.200"
               fontSize="xs"
               colorScheme="cyan"
+              aria-label="Refactor generated code"
             >
               Refactor
             </Button>
